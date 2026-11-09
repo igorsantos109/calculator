@@ -1,104 +1,121 @@
-# Leitor de Cupons Fiscais — Especificação
+# Leitor de Cupons Fiscais — Especificação Revisada
 
-## Objetivo
-App desktop local que lê cupons fiscais brasileiros e divide gastos entre três entes:
-- **Casa** (comum)
-- **Igor** (pessoal)
-- **Renan** (pessoal)
+## 1) Objetivo
+Aplicativo desktop local em Rust para registrar cupons fiscais, revisar itens manualmente, classificar gastos por grupo e calcular totais.
 
-## Fluxo do usuário
-1. Seleciona imagem do cupom.
-2. App executa OCR → texto bruto.
-3. LLM local converte texto em `Vec<Item>` (JSON estruturado).
-4. App valida: soma dos itens ≈ total do cupom.
-5. Usuário revisa/edita tabela de itens e atribui grupo a cada um.
-6. App calcula e exibe totais por grupo + relatório por pessoa.
-7. App salva cupom + itens no SQLite.
+## 2) Estado atual auditado (repositório neste PR)
 
-## Stack
-| Camada | Crate/Tecnologia |
-|---|---|
-| OCR | `alvio-ocr` (PP-OCRv6, ONNX) |
-| LLM local | Ollama via `ollama-rest` — modelo `qwen2.5:7b-instruct-q4_K_M` |
-| Pré-processamento | `image`, `imageproc` |
-| DB | `rusqlite` (bundled) |
-| UI | `eframe` / `egui` |
-| Erros | `thiserror`, `anyhow` (só na UI) |
-| Serialização | `serde`, `serde_json` |
+### 2.1 Stack e arquitetura já presentes
+- Workspace Rust edition 2021 com crates `core`, `db` e `ui`.
+- UI desktop com `eframe`/`egui`.
+- Persistência SQLite via `rusqlite`.
+- Dependências de OCR (`alvio-ocr`) e LLM local (`ollama-rest`) declaradas no `core`.
+- CI com `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test` e `cargo build --release`.
 
-## Modelo de dados (SQLite)
-```sql
-CREATE TABLE receipts (
-  id INTEGER PRIMARY KEY,
-  data_compra TEXT,           -- ISO 8601 (YYYY-MM-DD)
-  estabelecimento TEXT,
-  total_cupom REAL NOT NULL,
-  imagem_path TEXT,
-  criado_em TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE items (
-  id INTEGER PRIMARY KEY,
-  receipt_id INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
-  descricao TEXT NOT NULL,
-  quantidade REAL NOT NULL,
-  preco_unitario REAL NOT NULL,
-  preco_total REAL NOT NULL,
-  grupo TEXT NOT NULL CHECK(grupo IN ('casa','igor','renan'))
-);
-CREATE INDEX idx_items_receipt ON items(receipt_id);
-```
+### 2.2 Comportamentos já implementados
+- Cálculo de totais por grupo e validação de conciliação com tolerância de R$ 0,05.
+- Esquema inicial de banco com tabelas `receipts` e `items`.
+- UI básica para selecionar imagem, visualizar/editar grupos e exibir totais.
 
-## Tipos Rust (crate `core`)
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Item {
-    pub descricao: String,
-    pub quantidade: f64,
-    pub preco_unitario: f64,
-    pub preco_total: f64,
-}
+### 2.3 Lacunas relevantes encontradas
+- Fluxo manual completo ainda não está fechado (botão salvar ainda placeholder na UI).
+- OCR/LLM não estão integrados de ponta a ponta no fluxo de uso.
+- Modelo financeiro atual usa `f64`/`REAL`, ainda sem migração para centavos `i64`/`INTEGER`.
+- Separação formal entre rascunho e cupom confirmado ainda não existe.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Grupo { Casa, Igor, Renan }
+## 3) Princípios técnicos (mantidos)
+1. Rust edition 2021.
+2. UI com `egui/eframe`.
+3. SQLite local.
+4. Runtime 100% local, sem APIs externas em execução.
+5. Ollama somente em loopback local.
+6. Sem Python/Node em código de produção.
+7. `thiserror` no domínio e `anyhow` apenas em UI/binário.
 
-#[derive(Debug, Clone)]
-pub struct ItemClassificado {
-    pub item: Item,
-    pub grupo: Grupo,
-}
+## 4) Comportamento planejado (proposto, pendente validação humana)
 
-#[derive(Debug, Default, Serialize)]
-pub struct Totais {
-    pub casa: f64,
-    pub igor: f64,
-    pub renan: f64,
-    pub geral: f64,
-}
-```
+### 4.1 Prioridade de entrega
+- MVP manual completo primeiro: entrada/edição de itens, classificação, persistência, histórico e relatório funcionando sem OCR e sem Ollama.
+- IA (OCR/LLM) como assistência opcional posterior.
 
-## Regras de negócio
-- **Validação aritmética**: `|Σ(preco_total dos itens) − total_cupom| ≤ 0.05` → OK; senão marcar cupom como "revisar".
-- **Cálculo**: cada item soma integralmente ao seu grupo. `geral = casa + igor + renan`.
-- **Persistência**: ao salvar, itens sem grupo atribuído são rejeitados com erro claro.
+### 4.2 Dinheiro e conciliação
+- Planejar valores monetários finais como centavos (`i64` no Rust e `INTEGER` no SQLite).
+- Operações monetárias com verificação de overflow.
+- Quantidade e preço unitário com precisão decimal suficiente para itens por peso.
+- Definir política explícita de arredondamento.
+- Definir migração segura dos dados existentes (sem migrar neste PR).
+- Tolerância de conciliação planejada: 5 centavos inteiros.
+- Preservar o total impresso por linha e sinalizar divergências sem correção silenciosa.
 
-## Prompt fixo do LLM (crate `core::llm`)
+### 4.3 Estados do cupom
+- Rascunho: grupo opcional, permite pendências.
+- Confirmado: grupo obrigatório e validações completas (campos, grupos e conciliação).
+
+### 4.4 Regras propostas (não aprovadas ainda)
+- Casa dividida 50/50 entre Igor e Renan.
+- Um pagador por cupom no MVP.
+- Relatório com responsabilidade individual e saldo a acertar.
+- Centavo indivisível atribuído deterministicamente a Igor.
+
+### 4.5 Extração e revisão manual
+- Extração deve incluir: `estabelecimento`, `data_compra`, `total_cupom` e `itens`.
+- Campos desconhecidos ficam nulos e devem ser revisados manualmente.
+- Não inventar dados ausentes.
+- Tratamento explícito para descontos, acréscimos e valores zero.
+
+### 4.6 Pipeline técnico planejado
+`imagem opcional -> OCR -> parser determinístico limitado a formatos conhecidos -> LLM local quando necessário/solicitado -> revisão -> persistência`.
+
+No uso de Ollama (planejado):
+- `format` com JSON Schema.
+- timeout explícito.
+- erros tipados.
+- validação de domínio independente da resposta estruturada.
+- modelo configurável.
+- sem logar conteúdo integral de cupons por padrão.
+
+### 4.7 OCR como prova de conceito antes de adoção definitiva
+- Não assumir `alvio-ocr`, versão atual ou PP-OCRv6 como decisão final.
+- Planejar PoC para validar: dependência, licença, build no sistema-alvo, português, operação offline após instalação, tempo e memória.
+- Comparar imagem original vs pré-processada antes de tornar binarização obrigatória.
+- Não substituir dependência silenciosamente.
+
+### 4.8 Serviço de processamento e persistência
+- Planejar serviço de processamento reutilizável fora da thread de UI.
+- Exibir etapas reais de progresso.
+- Recuperar falhas sem perder revisão manual.
+- Persistência com migrações, transações e `foreign_keys` ativadas por conexão.
+- Incluir contrato de exclusão caso haja testes de exclusão.
+- Formatação monetária pt-BR.
+
+## 5) Prompt planejado para extração (sem contexto de commits/status)
 ```
 Você é um extrator de dados de cupons fiscais brasileiros.
-Receba o texto OCR abaixo e retorne APENAS um JSON válido no formato:
-{"itens":[{"descricao":"...","quantidade":1,"preco_unitario":0.0,"preco_total":0.0}]}
-Regras:
-- Ignore cabeçalhos, totais, impostos, formas de pagamento e rodapés.
-- Valores em reais, use ponto como separador decimal.
-- Se quantidade não estiver explícita, use 1.
-- Se preco_unitario não estiver explícito, calcule como preco_total/quantidade.
-- Não inclua texto fora do JSON.
+Receba o texto OCR e retorne APENAS JSON válido.
 
-Texto OCR:
-<<<{ocr_text}>>>
+Formato esperado:
+{
+  "estabelecimento": "string | null",
+  "data_compra": "YYYY-MM-DD | null",
+  "total_cupom": "number | null",
+  "itens": [
+    {
+      "descricao": "string",
+      "quantidade": "number | null",
+      "preco_unitario": "number | null",
+      "preco_total": "number | null"
+    }
+  ]
+}
+
+Regras:
+- Não invente dados ausentes; use null quando não houver evidência.
+- Pode retornar valores zero quando presentes no cupom.
+- Preserve descontos e acréscimos quando identificáveis.
+- Não inclua texto fora do JSON.
 ```
 
-## Fora de escopo (por agora)
-- Sincronização em nuvem.
-- Autenticação multiusuário.
-- Suporte a cupons de outros países.
-- OCR de PDFs multipágina.
+## 6) Fora de escopo deste PR
+- Implementar mudanças de domínio, banco, UI, OCR ou LLM.
+- Rodar migração de dados.
+- Criar issues automaticamente.
