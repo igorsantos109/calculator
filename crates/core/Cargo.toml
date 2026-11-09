@@ -1,0 +1,15 @@
+[package]
+name = "receipt_core"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+image = "0.25"
+imageproc = "0.24"
+alvio-ocr = "0.1"        # ajustar para a versão publicada
+ollama-rest = "0.3"      # ou reqwest direto, se preferir
+regex = "1"
+tracing = "0.1"
