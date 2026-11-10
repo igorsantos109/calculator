@@ -1,7 +1,7 @@
 //! Database layer for the receipt scanner app.
 //!
 //! This crate provides the `Repositorio` struct that handles all SQLite operations
-//! for persisting receipts and items.
+//! for persisting receipts and items, including schema versioning and migrations.
 
 use receipt_core::{Grupo, Item, ItemClassificado};
 use rusqlite::{params, Connection, Result as SqliteResult};
@@ -9,8 +9,10 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Estrutura que encapsula todos os dados de um cupom fiscal completo.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CupomCompleto {
+    /// ID do cupom no banco de dados (0 para novos cupons)
+    pub id: i64,
     /// Cabeçalho do recibo
     pub receita: Receita,
     /// Itens classificados do recibo
@@ -18,7 +20,7 @@ pub struct CupomCompleto {
 }
 
 /// Cabeçalho do recibo (dados do topo do cupom)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Receita {
     /// Data da compra no formato ISO 8601 (YYYY-MM-DD)
     pub data_compra: String,
@@ -28,6 +30,8 @@ pub struct Receita {
     pub total_cupom: f64,
     /// Caminho da imagem do cupom
     pub imagem_path: String,
+    /// Quem pagou o cupom
+    pub pagador: String,
 }
 
 /// Resumo do cupom para listagem
@@ -37,6 +41,7 @@ pub struct CupomResumo {
     pub data_compra: String,
     pub estabelecimento: String,
     pub total_cupom: f64,
+    pub pagador: String,
 }
 
 /// Erros deste crate.
@@ -53,47 +58,162 @@ pub enum DbError {
 
     #[error("Falha ao criar esquema de banco de dados")]
     EsquemaFalhou,
+
+    #[error("Falha na migração: {0}")]
+    MigracaoFalhou(String),
 }
+
+/// Versão atual do schema do banco de dados.
+const SCHEMA_VERSION: i64 = 2;
+
+/// Representa uma migração de schema.
+#[allow(dead_code)]
+struct Migracao {
+    versao: i64,
+    descricao: &'static str,
+    up: &'static str,
+    #[allow(dead_code)]
+    down: &'static str,
+}
+
+/// Lista de migrações ordenadas por versão.
+/// v1: Schema inicial (receipts, items) com pagador
+/// v2: Registro histórico de migração pagador (já incluída na v1)
+const MIGRACOES: &[Migracao] = &[
+    Migracao {
+        versao: 1,
+        descricao: "Schema inicial: receipts e items",
+        up: "PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS receipts (
+    id INTEGER PRIMARY KEY,
+    data_compra TEXT,
+    estabelecimento TEXT,
+    total_cupom REAL NOT NULL,
+    imagem_path TEXT,
+    pagador TEXT NOT NULL CHECK(pagador IN ('igor','renan')) DEFAULT 'igor',
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS items (
+    id INTEGER PRIMARY KEY,
+    receipt_id INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+    descricao TEXT NOT NULL,
+    quantidade REAL NOT NULL,
+    preco_unitario REAL NOT NULL,
+    preco_total REAL NOT NULL,
+    grupo TEXT NOT NULL CHECK(grupo IN ('casa','igor','renan'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_items_receipt ON items(receipt_id);
+
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now')),
+    description TEXT
+);",
+        down: "DROP TABLE IF EXISTS items;
+DROP TABLE IF EXISTS receipts;
+DROP TABLE IF EXISTS schema_version;",
+    },
+    Migracao {
+        versao: 2,
+        descricao: "Adiciona coluna pagador em receipts (já incluída na v1, mantida para histórico)",
+        up: "-- A coluna pagador já foi incluída na v1.
+-- Esta migração serve como registro histórico.
+INSERT OR IGNORE INTO schema_version (version, description) VALUES (2, 'Coluna pagador em receipts');",
+        down: "-- Não há rollback simples para adição de coluna.
+-- Em produção, considerar backup antes de downgrade.",
+    },
+];
 
 /// Repositório para operações de banco de dados SQLite.
 #[allow(dead_code)]
 pub struct Repositorio {
     /// Conexão com o banco de dados
-    conn: Connection,
+    pub conn: Connection,
 }
 
 impl Repositorio {
     /// Cria o esquema do banco de dados se não existir.
     ///
     /// Esta função deve ser chamada antes de qualquer operação de leitura/escrita.
-    /// Ativa foreign keys e cria as tabelas `receipts` e `items`.
-    pub fn criar_esquema(conn: &Connection) -> SqliteResult<(), DbError> {
-        conn.execute_batch(
-            "PRAGMA foreign_keys = ON;
+    /// Ativa foreign keys e cria as tabelas `receipts`, `items` e `schema_version`.
+    pub fn criar_esquema(conn: &mut Connection) -> SqliteResult<(), DbError> {
+        // Aplicar migrações na ordem
+        for migracao in MIGRACOES {
+            Self::aplicar_migracao(conn, migracao)?;
+        }
+        Ok(())
+    }
 
-    CREATE TABLE IF NOT EXISTS receipts (
-        id INTEGER PRIMARY KEY,
-        data_compra TEXT,
-        estabelecimento TEXT,
-        total_cupom REAL NOT NULL,
-        imagem_path TEXT,
-        criado_em TEXT NOT NULL DEFAULT (datetime('now'))
-    );
+    /// Aplica uma migração se ainda não foi aplicada.
+    fn aplicar_migracao(conn: &mut Connection, migracao: &Migracao) -> SqliteResult<(), DbError> {
+        // Verificar se a migração já foi aplicada
+        let ja_aplicada: bool = conn
+            .query_row(
+                "SELECT 1 FROM schema_version WHERE version = ?1",
+                params![migracao.versao],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
 
-    CREATE TABLE IF NOT EXISTS items (
-        id INTEGER PRIMARY KEY,
-        receipt_id INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
-        descricao TEXT NOT NULL,
-        quantidade REAL NOT NULL,
-        preco_unitario REAL NOT NULL,
-        preco_total REAL NOT NULL,
-        grupo TEXT NOT NULL CHECK(grupo IN ('casa','igor','renan'))
-    );
+        if ja_aplicada {
+            return Ok(());
+        }
 
-    CREATE INDEX IF NOT EXISTS idx_items_receipt ON items(receipt_id);",
+        // Aplicar migração em transação
+        let tx = conn.transaction()?;
+
+        // Executar SQL UP
+        tx.execute_batch(migracao.up).map_err(|e| {
+            DbError::MigracaoFalhou(format!(
+                "Falha na migração v{}: {} - {}",
+                migracao.versao, migracao.descricao, e
+            ))
+        })?;
+
+        // Registrar versão aplicada
+        tx.execute(
+            "INSERT OR IGNORE INTO schema_version (version, description) VALUES (?1, ?2)",
+            params![migracao.versao, migracao.descricao],
         )?;
 
+        tx.commit()?;
         Ok(())
+    }
+
+    /// Obtém a versão atual do schema no banco.
+    pub fn versao_atual(conn: &Connection) -> SqliteResult<i64, DbError> {
+        let versao: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        Ok(versao)
+    }
+
+    /// Executa todas as migrações pendentes até a versão alvo.
+    pub fn migrar(conn: &mut Connection) -> SqliteResult<(), DbError> {
+        let versao_atual = Self::versao_atual(conn)?;
+        let versoes_pendentes: Vec<&Migracao> = MIGRACOES
+            .iter()
+            .filter(|m| m.versao > versao_atual)
+            .collect();
+
+        for migracao in versoes_pendentes {
+            Self::aplicar_migracao(conn, migracao)?;
+        }
+
+        Ok(())
+    }
+
+    /// Verifica se o banco está na versão mais recente.
+    pub fn esta_atualizado(conn: &Connection) -> SqliteResult<bool, DbError> {
+        let versao_atual = Self::versao_atual(conn)?;
+        Ok(versao_atual >= SCHEMA_VERSION)
     }
 
     /// Salva um cupom completo no banco de dados dentro de uma transação atômica.
@@ -113,12 +233,13 @@ impl Repositorio {
 
         // Inserir cabeçalho do recibo
         tx.execute(
-            "INSERT INTO receipts (data_compra, estabelecimento, total_cupom, imagem_path) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO receipts (data_compra, estabelecimento, total_cupom, imagem_path, pagador) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 cupom.receita.data_compra,
                 cupom.receita.estabelecimento,
                 cupom.receita.total_cupom,
-                cupom.receita.imagem_path
+                cupom.receita.imagem_path,
+                cupom.receita.pagador
             ],
         )?;
 
@@ -151,7 +272,7 @@ impl Repositorio {
     /// Vetor de `CupomResumo` com os cupons encontrados.
     pub fn listar_cupons(conn: &Connection) -> SqliteResult<Vec<CupomResumo>, DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, data_compra, estabelecimento, total_cupom FROM receipts ORDER BY criado_em DESC",
+            "SELECT id, data_compra, estabelecimento, total_cupom, pagador FROM receipts ORDER BY criado_em DESC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -160,6 +281,7 @@ impl Repositorio {
                 data_compra: row.get(1)?,
                 estabelecimento: row.get(2)?,
                 total_cupom: row.get(3)?,
+                pagador: row.get(4)?,
             })
         })?;
 
@@ -183,16 +305,18 @@ impl Repositorio {
         id: i64,
     ) -> SqliteResult<Option<CupomCompleto>, DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, data_compra, estabelecimento, total_cupom, imagem_path FROM receipts WHERE id = ?1",
+            "SELECT id, data_compra, estabelecimento, total_cupom, imagem_path, pagador FROM receipts WHERE id = ?1",
         )?;
 
         let result = stmt.query_row([id], |row| {
             Ok(CupomCompleto {
+                id: row.get(0)?,
                 receita: Receita {
                     data_compra: row.get(1)?,
                     estabelecimento: row.get(2)?,
                     total_cupom: row.get(3)?,
                     imagem_path: row.get(4)?,
+                    pagador: row.get(5)?,
                 },
                 itens: Vec::new(), // Será populado com left join se necessário
             })
@@ -256,6 +380,7 @@ impl Repositorio {
     /// Cria uma nova instância de `Repositorio` conectando ao banco de dados especificado.
     ///
     /// O arquivo do banco de dados será criado se não existir.
+    /// Aplica migrações automaticamente.
     ///
     /// # Arguments
     /// * `path` - Caminho para o arquivo do banco de dados SQLite
@@ -263,10 +388,10 @@ impl Repositorio {
     /// # Returns
     /// `Result<Self, DbError>` - Nova instância do repositório ou erro de conexão.
     pub fn new(path: &Path) -> Result<Self, DbError> {
-        let conn = Connection::open(path).map_err(DbError::from)?;
+        let mut conn = Connection::open(path).map_err(DbError::from)?;
 
-        // Create schema immediately
-        Self::criar_esquema(&conn)?;
+        // Apply migrations automatically
+        Self::migrar(&mut conn)?;
 
         Ok(Repositorio { conn })
     }
@@ -278,9 +403,9 @@ mod tests {
 
     #[test]
     fn test_criar_esquema() {
-        let conn = Connection::open_in_memory().unwrap();
+        let mut conn = Connection::open_in_memory().unwrap();
 
-        let result = Repositorio::criar_esquema(&conn);
+        let result = Repositorio::criar_esquema(&mut conn);
         assert!(result.is_ok());
     }
 
@@ -292,11 +417,13 @@ mod tests {
         Repositorio::criar_esquema(&mut conn).unwrap();
 
         let cupom = CupomCompleto {
+            id: 0,
             receita: Receita {
                 data_compra: "2024-01-15".to_string(),
                 estabelecimento: "Supermercado XYZ".to_string(),
                 total_cupom: 125.50,
                 imagem_path: "/path/to/image.jpg".to_string(),
+                pagador: "igor".to_string(),
             },
             itens: vec![
                 ItemClassificado {
@@ -330,6 +457,7 @@ mod tests {
         let cupom_encontrado = encontrado.unwrap();
         assert_eq!(cupom_encontrado.receita.estabelecimento, "Supermercado XYZ");
         assert_eq!(cupom_encontrado.receita.total_cupom, 125.50);
+        assert_eq!(cupom_encontrado.receita.pagador, "igor");
 
         // Buscar itens
         let itens = Repositorio::buscar_itens_por_receipt_id(&conn, 1).unwrap();
@@ -346,7 +474,7 @@ mod tests {
 
         // Inserir diretamente via SQL para teste
         conn.execute(
-            "INSERT INTO receipts (data_compra, estabelecimento, total_cupom, imagem_path) VALUES ('2024-01-15', 'Teste', 50.0, '/path/img.jpg')",
+            "INSERT INTO receipts (data_compra, estabelecimento, total_cupom, imagem_path, pagador) VALUES ('2024-01-15', 'Teste', 50.0, '/path/img.jpg', 'igor')",
             [],
         ).unwrap();
 
@@ -354,5 +482,77 @@ mod tests {
         assert_eq!(cupons.len(), 1);
         assert_eq!(cupons[0].estabelecimento, "Teste");
         assert_eq!(cupons[0].total_cupom, 50.0);
+        assert_eq!(cupons[0].pagador, "igor");
+    }
+
+    #[test]
+    fn test_migracoes() {
+        let mut conn = Connection::open_in_memory().unwrap();
+
+        // Aplicar migrações
+        let result = Repositorio::migrar(&mut conn);
+        assert!(result.is_ok());
+
+        // Verificar versão
+        let versao = Repositorio::versao_atual(&conn).unwrap();
+        assert_eq!(versao, 2); // SCHEMA_VERSION atual
+
+        // Verificar se está atualizado
+        let atualizado = Repositorio::esta_atualizado(&conn).unwrap();
+        assert!(atualizado);
+
+        // Tentar aplicar novamente (idempotente)
+        let result2 = Repositorio::migrar(&mut conn);
+        assert!(result2.is_ok());
+
+        // Verificar tabelas criadas
+        let tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert!(tables.contains(&"receipts".to_string()));
+        assert!(tables.contains(&"items".to_string()));
+        assert!(tables.contains(&"schema_version".to_string()));
+    }
+
+    #[test]
+    fn test_migracao_idempotente() {
+        let mut conn = Connection::open_in_memory().unwrap();
+
+        // Aplicar migrações múltiplas vezes
+        for _ in 0..3 {
+            Repositorio::migrar(&mut conn).unwrap();
+        }
+
+        let versao = Repositorio::versao_atual(&conn).unwrap();
+        assert_eq!(versao, 2);
+    }
+
+    #[test]
+    fn test_schema_version_table() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        Repositorio::criar_esquema(&mut conn).unwrap();
+
+        // Verificar conteúdo da tabela schema_version
+        let mut stmt = conn
+            .prepare("SELECT version, description FROM schema_version ORDER BY version")
+            .unwrap();
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap();
+
+        let versoes: Vec<(i64, String)> = rows.collect::<Result<Vec<_>, _>>().unwrap();
+
+        assert_eq!(versoes.len(), 2);
+        assert_eq!(versoes[0].0, 1);
+        assert!(versoes[0].1.contains("inicial"));
+        assert_eq!(versoes[1].0, 2);
+        assert!(versoes[1].1.contains("pagador"));
     }
 }

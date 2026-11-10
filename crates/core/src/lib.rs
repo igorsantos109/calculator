@@ -9,12 +9,31 @@ use thiserror::Error;
 /// Enum representing the classification group for a receipt item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Grupo {
-    /// Gasto comum da casa
+    /// Gasto comum da casa (dividido 50/50 entre Igor e Renan)
     Casa,
     /// Gasto pessoal do Igor
     Igor,
     /// Gasto pessoal do Renan
     Renan,
+}
+
+/// Quem pagou o cupom.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Pagador {
+    #[default]
+    /// Igor pagou
+    Igor,
+    /// Renan pagou
+    Renan,
+}
+
+impl std::fmt::Display for Pagador {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Pagador::Igor => write!(f, "igor"),
+            Pagador::Renan => write!(f, "renan"),
+        }
+    }
 }
 
 impl std::fmt::Display for Grupo {
@@ -76,6 +95,79 @@ pub struct Totais {
     pub igor: f64,
     pub renan: f64,
     pub geral: f64,
+}
+
+/// Responsabilidades individuais calculadas a partir dos totais.
+/// - Casa é dividida 50/50 entre Igor e Renan.
+/// - O centavo indivisível (se houver) fica com quem NÃO pagou.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct Responsabilidades {
+    /// Responsabilidade do Igor (pessoal + metade da casa + centavo se couber)
+    pub igor: f64,
+    /// Responsabilidade do Renan (pessoal + metade da casa + centavo se couber)
+    pub renan: f64,
+    /// Total geral (igor + renan)
+    pub geral: f64,
+    /// Quem pagou o cupom
+    pub pagador: Pagador,
+    /// Valor pago pelo pagador
+    pub valor_pago: f64,
+    /// Saldo: positivo = deve receber, negativo = deve pagar
+    pub saldo_igor: f64,
+    pub saldo_renan: f64,
+}
+
+/// Calcula as responsabilidades individuais.
+///
+/// # Regras
+/// - Itens pessoais (Igor/Renan): responsabilidade integral do respectivo dono.
+/// - Itens Casa: divididos 50/50.
+/// - Centavo indivisível (diferença de 0,01 ao dividir casa): fica com quem NÃO pagou.
+/// - Saldo = valor_pago - responsabilidade (positivo = crédito, negativo = débito).
+pub fn calcular_responsabilidades(
+    totais: &Totais,
+    pagador: Pagador,
+    total_cupom: f64,
+) -> Responsabilidades {
+    // Metade da casa
+    let _metade_casa = totais.casa / 2.0;
+    let centavos_casa = (totais.casa * 100.0).round() as i64;
+    let centavos_metade = centavos_casa / 2;
+    let centavo_indivisivel = centavos_casa % 2;
+
+    // Responsabilidade base (sem centavo indivisível)
+    let mut igor = totais.igor + (centavos_metade as f64 / 100.0);
+    let mut renan = totais.renan + (centavos_metade as f64 / 100.0);
+
+    // Centavo indivisível vai para quem NÃO pagou
+    if centavo_indivisivel == 1 {
+        match pagador {
+            Pagador::Igor => renan += 0.01,
+            Pagador::Renan => igor += 0.01,
+        }
+    }
+
+    let geral = igor + renan;
+
+    // Saldo = valor_pago - responsabilidade
+    // Quem pagou tem valor_pago = total_cupom, o outro tem 0
+    let (valor_pago_igor, valor_pago_renan) = match pagador {
+        Pagador::Igor => (total_cupom, 0.0),
+        Pagador::Renan => (0.0, total_cupom),
+    };
+
+    let saldo_igor = valor_pago_igor - igor;
+    let saldo_renan = valor_pago_renan - renan;
+
+    Responsabilidades {
+        igor,
+        renan,
+        geral,
+        pagador,
+        valor_pago: total_cupom,
+        saldo_igor,
+        saldo_renan,
+    }
 }
 
 /// Soma os itens classificados por grupo e retorna totais gerais.
@@ -200,5 +292,98 @@ mod tests {
         // Soma = 20.0, total_cupom = 20.1 → diferencial = 0.1 > 0.05
         let resultado = validar_total(&itens, 20.1);
         assert!(resultado.is_err());
+    }
+
+    #[test]
+    fn test_calcular_responsabilidades_casa_par() {
+        // Casa = 10.00 (par), Igor = 5.00, Renan = 3.00, total = 18.00
+        // Igor pagou
+        let totais = Totais {
+            casa: 10.0,
+            igor: 5.0,
+            renan: 3.0,
+            geral: 18.0,
+        };
+        let resp = calcular_responsabilidades(&totais, Pagador::Igor, 18.0);
+
+        // Casa 10.00 / 2 = 5.00 cada (sem centavo indivisível)
+        // Igor: 5.00 (pessoal) + 5.00 (casa) = 10.00
+        // Renan: 3.00 (pessoal) + 5.00 (casa) = 8.00
+        assert!((resp.igor - 10.0).abs() < 0.001);
+        assert!((resp.renan - 8.0).abs() < 0.001);
+        assert!((resp.geral - 18.0).abs() < 0.001);
+        assert_eq!(resp.pagador, Pagador::Igor);
+
+        // Saldo: Igor pagou 18.00, deve 10.00 -> +8.00 (crédito)
+        // Renan pagou 0, deve 8.00 -> -8.00 (débito)
+        assert!((resp.saldo_igor - 8.0).abs() < 0.001);
+        assert!((resp.saldo_renan + 8.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_calcular_responsabilidades_casa_impar_igor_pagou() {
+        // Casa = 10.01 (ímpar), Igor = 5.00, Renan = 3.00, total = 18.01
+        // Igor pagou -> centavo vai para Renan
+        let totais = Totais {
+            casa: 10.01,
+            igor: 5.0,
+            renan: 3.0,
+            geral: 18.01,
+        };
+        let resp = calcular_responsabilidades(&totais, Pagador::Igor, 18.01);
+
+        // 1001 centavos / 2 = 500 cada, resto 1 -> vai para Renan (não pagou)
+        // Igor: 5.00 + 5.00 = 10.00
+        // Renan: 3.00 + 5.00 + 0.01 = 8.01
+        assert!((resp.igor - 10.0).abs() < 0.001);
+        assert!((resp.renan - 8.01).abs() < 0.001);
+        assert!((resp.geral - 18.01).abs() < 0.001);
+
+        // Igor pagou 18.01, deve 10.00 -> +8.01
+        // Renan pagou 0, deve 8.01 -> -8.01
+        assert!((resp.saldo_igor - 8.01).abs() < 0.001);
+        assert!((resp.saldo_renan + 8.01).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_calcular_responsabilidades_casa_impar_renan_pagou() {
+        // Casa = 10.01 (ímpar), Igor = 5.00, Renan = 3.00, total = 18.01
+        // Renan pagou -> centavo vai para Igor
+        let totais = Totais {
+            casa: 10.01,
+            igor: 5.0,
+            renan: 3.0,
+            geral: 18.01,
+        };
+        let resp = calcular_responsabilidades(&totais, Pagador::Renan, 18.01);
+
+        // 1001 centavos / 2 = 500 cada, resto 1 -> vai para Igor (não pagou)
+        // Igor: 5.00 + 5.00 + 0.01 = 10.01
+        // Renan: 3.00 + 5.00 = 8.00
+        assert!((resp.igor - 10.01).abs() < 0.001);
+        assert!((resp.renan - 8.0).abs() < 0.001);
+        assert!((resp.geral - 18.01).abs() < 0.001);
+
+        // Renan pagou 18.01, deve 8.00 -> +10.01
+        // Igor pagou 0, deve 10.01 -> -10.01
+        assert!((resp.saldo_renan - 10.01).abs() < 0.001);
+        assert!((resp.saldo_igor + 10.01).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_calcular_responsabilidades_sem_casa() {
+        // Sem itens de casa, apenas pessoais
+        let totais = Totais {
+            casa: 0.0,
+            igor: 20.0,
+            renan: 10.0,
+            geral: 30.0,
+        };
+        let resp = calcular_responsabilidades(&totais, Pagador::Igor, 30.0);
+
+        assert!((resp.igor - 20.0).abs() < 0.001);
+        assert!((resp.renan - 10.0).abs() < 0.001);
+        assert!((resp.saldo_igor - 10.0).abs() < 0.001); // Igor pagou 30, deve 20 -> +10
+        assert!((resp.saldo_renan + 10.0).abs() < 0.001); // Renan pagou 0, deve 10 -> -10
     }
 }
