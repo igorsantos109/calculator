@@ -555,4 +555,220 @@ mod tests {
         assert_eq!(versoes[1].0, 2);
         assert!(versoes[1].1.contains("pagador"));
     }
+
+    /// Testa que a migração preserva dados existentes de um schema anterior.
+    /// Cria um banco com schema v1 (sem schema_version, mas com pagador), insere dados,
+    /// executa migração para v2, e verifica integridade dos dados.
+    #[test]
+    fn test_migracao_preserva_dados_anteriores() {
+        let mut conn = Connection::open_in_memory().unwrap();
+
+        // Criar schema v1 (sem schema_version, mas COM pagador - como a migração v1 cria)
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+
+CREATE TABLE receipts (
+    id INTEGER PRIMARY KEY,
+    data_compra TEXT,
+    estabelecimento TEXT,
+    total_cupom REAL NOT NULL,
+    imagem_path TEXT,
+    pagador TEXT NOT NULL CHECK(pagador IN ('igor','renan')) DEFAULT 'igor',
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE items (
+    id INTEGER PRIMARY KEY,
+    receipt_id INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+    descricao TEXT NOT NULL,
+    quantidade REAL NOT NULL,
+    preco_unitario REAL NOT NULL,
+    preco_total REAL NOT NULL,
+    grupo TEXT NOT NULL CHECK(grupo IN ('casa','igor','renan'))
+);
+
+CREATE INDEX idx_items_receipt ON items(receipt_id);",
+        )
+        .unwrap();
+
+        // Inserir dados no schema v1
+        conn.execute(
+            "INSERT INTO receipts (data_compra, estabelecimento, total_cupom, imagem_path, criado_em) 
+             VALUES ('2024-01-15', 'Mercado Antigo', 100.0, '/old/img.jpg', '2024-01-15T10:00:00')",
+            [],
+        ).unwrap();
+        let receipt_id = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO items (receipt_id, descricao, quantidade, preco_unitario, preco_total, grupo) 
+             VALUES (?1, 'Leite', 2.0, 5.0, 10.0, 'casa')",
+            params![receipt_id],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO items (receipt_id, descricao, quantidade, preco_unitario, preco_total, grupo) 
+             VALUES (?1, 'Pão', 1.0, 8.0, 8.0, 'igor')",
+            params![receipt_id],
+        ).unwrap();
+
+        // Verificar dados antes da migração
+        let count_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM receipts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count_before, 1);
+        let items_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM items", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(items_before, 2);
+
+        // Executar migração para v2
+        let result = Repositorio::migrar(&mut conn);
+        assert!(result.is_ok());
+
+        // Verificar versão
+        let versao = Repositorio::versao_atual(&conn).unwrap();
+        assert_eq!(versao, 2);
+
+        // Verificar que dados foram preservados
+        let count_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM receipts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count_after, 1);
+
+        let items_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM items", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(items_after, 2);
+
+        // Verificar integridade dos dados via repositório
+        let cupom = Repositorio::buscar_cupom(&conn, receipt_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(cupom.receita.estabelecimento, "Mercado Antigo");
+        assert_eq!(cupom.receita.total_cupom, 100.0);
+        // pagador deve ter valor padrão 'igor' (DEFAULT da migração)
+        assert_eq!(cupom.receita.pagador, "igor");
+
+        let itens = Repositorio::buscar_itens_por_receipt_id(&conn, receipt_id).unwrap();
+        assert_eq!(itens.len(), 2);
+        assert_eq!(itens[0].item.descricao, "Leite");
+        assert_eq!(itens[0].grupo, Grupo::Casa);
+        assert_eq!(itens[1].item.descricao, "Pão");
+        assert_eq!(itens[1].grupo, Grupo::Igor);
+
+        // Executar migração novamente (idempotência)
+        let result2 = Repositorio::migrar(&mut conn);
+        assert!(result2.is_ok());
+
+        // Verificar que dados não foram alterados
+        let count_final: i64 = conn
+            .query_row("SELECT COUNT(*) FROM receipts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count_final, 1);
+    }
+
+    /// Testa que falha no salvamento não deixa cupom parcialmente gravado (atomicidade).
+    /// Provoca falha via trigger após primeiro item e verifica rollback completo.
+    #[test]
+    fn test_salvar_cupom_atomicidade_rollback() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        Repositorio::criar_esquema(&mut conn).unwrap();
+
+        // Inserir cupom existente para verificar preservação
+        conn.execute(
+            "INSERT INTO receipts (data_compra, estabelecimento, total_cupom, imagem_path, pagador) 
+             VALUES ('2024-01-01', 'Existente', 50.0, '/exist.jpg', 'igor')",
+            [],
+        ).unwrap();
+        let existing_id = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO items (receipt_id, descricao, quantidade, preco_unitario, preco_total, grupo) 
+             VALUES (?1, 'Existente Item', 1.0, 50.0, 50.0, 'casa')",
+            params![existing_id],
+        ).unwrap();
+
+        // Criar trigger que falha no segundo item inserido
+        conn.execute_batch(
+            "CREATE TEMPORARY TRIGGER trigger_falha_segundo_item
+             AFTER INSERT ON items
+             WHEN (SELECT COUNT(*) FROM items WHERE receipt_id = NEW.receipt_id) > 1
+             BEGIN
+                 SELECT RAISE(ABORT, 'falha simulada segundo item');
+             END;",
+        )
+        .unwrap();
+
+        // Tentar salvar cupom com 2 itens - deve falhar no segundo
+        let cupom_falha = CupomCompleto {
+            id: 0,
+            receita: Receita {
+                data_compra: "2024-01-20".to_string(),
+                estabelecimento: "Teste Falha".to_string(),
+                total_cupom: 30.0,
+                imagem_path: "/fail.jpg".to_string(),
+                pagador: "renan".to_string(),
+            },
+            itens: vec![
+                ItemClassificado {
+                    item: Item {
+                        descricao: "Primeiro Item".to_string(),
+                        quantidade: 1.0,
+                        preco_unitario: 15.0,
+                        preco_total: 15.0,
+                    },
+                    grupo: Grupo::Casa,
+                },
+                ItemClassificado {
+                    item: Item {
+                        descricao: "Segundo Item".to_string(),
+                        quantidade: 1.0,
+                        preco_unitario: 15.0,
+                        preco_total: 15.0,
+                    },
+                    grupo: Grupo::Igor,
+                },
+            ],
+        };
+
+        let resultado = Repositorio::salvar_cupom(&mut conn, &cupom_falha);
+        assert!(
+            resultado.is_err(),
+            "Salvamento deveria falhar devido ao trigger"
+        );
+
+        // Verificar que cupom NÃO foi inserido (rollback do cabeçalho)
+        let count_receipts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM receipts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            count_receipts, 1,
+            "Apenas o cupom pré-existente deve permanecer"
+        );
+
+        // Verificar que itens NÃO foram inseridos (rollback dos itens)
+        let count_items: i64 = conn
+            .query_row("SELECT COUNT(*) FROM items", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            count_items, 1,
+            "Apenas o item pré-existente deve permanecer"
+        );
+
+        // Verificar que dados preexistentes permanecem intactos
+        let cupom_existente = Repositorio::buscar_cupom(&conn, existing_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(cupom_existente.receita.estabelecimento, "Existente");
+        assert_eq!(cupom_existente.receita.total_cupom, 50.0);
+
+        let itens_existentes =
+            Repositorio::buscar_itens_por_receipt_id(&conn, existing_id).unwrap();
+        assert_eq!(itens_existentes.len(), 1);
+        assert_eq!(itens_existentes[0].item.descricao, "Existente Item");
+
+        // Limpar trigger temporário
+        conn.execute_batch("DROP TRIGGER trigger_falha_segundo_item;")
+            .unwrap();
+    }
 }

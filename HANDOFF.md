@@ -29,7 +29,7 @@ Aplicativo desktop local em Rust para registrar cupons fiscais brasileiros, revi
 ## Estado resumido
 - Checkout: /home/igor/ia-sh/calculador
 - Branch: main (tracking origin/main, sincronização não verificada)
-- Último commit local: cc3b625 "docs: add HANDOFF.md..."
+- Último commit local: 6789bb6 "feat: implement manual flow, financial rules, schema migrations, and reporting"
 - 13 arquivos rastreados (workspace, core, db, ui, CI, SPEC, README)
 - 2 arquivos NÃO rastreados: crates/core/src/ocr.rs, crates/core/src/llm.rs
 - HANDOFF.md: atualizado nesta fase
@@ -84,12 +84,16 @@ Aplicativo desktop local em Rust para registrar cupons fiscais brasileiros, revi
   - Funções: `migrar()`, `versao_atual()`, `esta_atualizado()`, `criar_esquema()`
   - Testes: 6 testes db (migrações, idempotência, schema_version, etc.)
   - Total testes: 14 (core: 8, db: 6)
+- **T03-F3: TESTES DE PRESERVAÇÃO E ATOMICIDADE IMPLEMENTADOS**
+  - `test_migracao_preserva_dados_anteriores`: cria schema v1 com dados, migra para v2, verifica integridade
+  - `test_salvar_cupom_atomicidade_rollback`: trigger falha no 2º item, verifica rollback completo
+  - **16 testes passando** (core: 8, db: 8)
 
 ## Arquivos alterados
 - **Criado**: HANDOFF.md
 - **Modificados**: 
   - crates/core/src/lib.rs (Pagador enum, Responsabilidades struct, calcular_responsabilidades)
-  - crates/db/src/lib.rs (schema_version, migrações v1/v2, pagador em Receita, conn público)
+  - crates/db/src/lib.rs (schema_version, migrações v1/v2, pagador em Receita, conn público, novos testes)
   - crates/ui/src/main.rs (formulário pagador, detalhes com responsabilidades/saldos)
   - crates/ui/Cargo.toml (dep dirs)
 - **Não modificados**: ocr.rs, llm.rs (permanecem não rastreados)
@@ -120,7 +124,10 @@ Aplicativo desktop local em Rust para registrar cupons fiscais brasileiros, revi
   - Migrações idempotentes com INSERT OR IGNORE
   - Aplicação automática na inicialização do Repositorio
   - Rollback documentado (down) para cada migração
-- **Testes**: 14 testes passando (core: 8, db: 6)
+- **Novos testes T03-F3**:
+  - `test_migracao_preserva_dados_anteriores`: cria schema v1 com pagador, insere 1 cupom + 2 itens, migra para v2, verifica integridade (ID, vínculo, descrição, qtd, valores, grupos, pagador default 'igor')
+  - `test_salvar_cupom_atomicidade_rollback`: trigger temporário falha no 2º item, verifica rollback total (cabeçalho + itens não persistem), dados preexistentes intactos
+- **Testes**: 16 testes passando (core: 8, db: 8)
 - **CI checks**: fmt ✓, clippy ✓, test ✓, build --release ✓
 
 ### Suspeitas / Não verificadas
@@ -133,7 +140,7 @@ Aplicativo desktop local em Rust para registrar cupons fiscais brasileiros, revi
 - Estado do PR #1
 
 ## Operações em andamento
-- T06 concluído, pronto para T07 (relatórios consolidados já implementados)
+- T03-F3 concluído, pronto para T08 (PoC OCR)
 
 ## Decisões e justificativas
 - Priorizar fluxo manual antes de OCR/LLM: reduz risco e permite uso imediato
@@ -166,4 +173,4 @@ Esta fase modificou: crates/core/src/lib.rs, crates/db/src/lib.rs, crates/ui/src
 Para reverter: `git checkout HEAD -- crates/core/src/lib.rs crates/db/src/lib.rs crates/ui/src/main.rs crates/ui/Cargo.toml Cargo.lock`
 
 ## Última atualização
-2026-11-10 — Fase T06 migrações e versionamento CONCLUÍDA. 14 testes passando. Próximo: T08 OCR.
+2026-11-10 — Fase T03-F3 testes de preservação e atomicidade CONCLUÍDA. 16 testes passando (8 core + 8 db). Próximo: T08 OCR.
