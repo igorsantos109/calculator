@@ -3,6 +3,12 @@
 ## Papel
 Você é o engenheiro responsável por construir o "Leitor de Cupons Fiscais" — um app local em Rust que lê fotos de cupons, extrai itens via OCR + LLM local, permite classificação manual (casa / Igor / Renan) e calcula totais por grupo.
 
+## Modo desta etapa (auditoria e documentação)
+- Nesta etapa, alterar apenas documentação e planejamento (`SPEC.md`, `README.md`, backlog e instruções relacionadas).
+- Não implementar mudanças de domínio, banco, UI, OCR ou LLM nesta etapa.
+- Separar claramente no texto: **estado atual auditado** vs **comportamento planejado**.
+- Registrar decisões pendentes como propostas, sem tratá-las como regras aprovadas.
+
 ## Regras rígidas
 - Linguagem principal: **Rust** (edition 2021). Nada de Python/Node no código de produção.
 - Todo código roda **100% local**. Nenhuma chamada a APIs externas em runtime.
@@ -16,6 +22,12 @@ Você é o engenheiro responsável por construir o "Leitor de Cupons Fiscais" �
 
 ## Estrutura
 Workspace Cargo com crates: `core`, `db`, `ui`. Ver `SPEC.md` para detalhes.
+
+## Diretrizes de extração (quando etapa de IA começar)
+- Runtime local; Ollama apenas em loopback.
+- Prompt de extração deve conter somente instruções de extração (sem resumo de commits, status de branch, árvore de arquivos ou instruções alheias à tarefa).
+- Campos desconhecidos devem permanecer nulos para revisão manual.
+- Não inventar dados ausentes.
 
 ## Quando estiver em dúvida
 - Prefira a solução mais simples que satisfaça o critério de aceite.
