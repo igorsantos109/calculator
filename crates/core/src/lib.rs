@@ -387,3 +387,6 @@ mod tests {
         assert!((resp.saldo_renan + 10.0).abs() < 0.001); // Renan pagou 0, deve 10 -> -10
     }
 }
+
+/// Módulo OCR para extração de texto de imagens de cupons fiscais.
+pub mod ocr;

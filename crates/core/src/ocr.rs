@@ -1,17 +1,13 @@
 //! OCR module for receipt scanning.
-//! 
+//!
 //! This module provides functionality to extract text from receipt images
 //! using the alvio-ocr crate (PP-OCRv6, ONNX) with basic preprocessing.
 
-use alvio_ocr::{OcrEngine, OcrOptions, OcrResult};
-use image::{ImageBuffer, Rgb, Dynamic};
-use imageproc::{
-    drawing::DrawTarget,
-    grayscale::grayscale,
-    threshold::adaptive_threshold,
-};
-use thiserror::Error;
+use alvio_ocr::{OcrEngine, OcrError as AlvioOcrError, OcrResult};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
+use imageproc::contrast::adaptive_threshold;
 use std::path::Path;
+use thiserror::Error;
 
 /// Erros tipados de OCR.
 #[derive(Debug, Error)]
@@ -19,11 +15,14 @@ pub enum OcrError {
     #[error("Imagem inválida: o arquivo não é uma imagem válida ou está corrompida")]
     ImagemInvalida(#[from] image::ImageError),
 
-    #[error("Falha no reconhecimento OCR")]
+    #[error("Falha no reconhecimento OCR: {0}")]
     FalhaReconhecimento(String),
 
-    #[error("Caminho de imagem inválido")]
-    CaminhoInvalido,
+    #[error("Caminho de imagem inválido: {0}")]
+    CaminhoInvalido(String),
+
+    #[error("Erro interno do motor OCR: {0}")]
+    ErroMotor(#[from] AlvioOcrError),
 }
 
 /// Opções de configuração para OCR.
@@ -58,67 +57,76 @@ pub struct OcrOutput {
 }
 
 /// Função principal: extrai texto de uma imagem de cupom fiscal.
-/// 
+///
 /// # Fluxo
 /// 1. Carrega a imagem usando `image` crate
 /// 2. Converte para escala de grayscale
 /// 3. Aplica binarização adaptativa para melhorar OCR
 /// 4. Envia ao motor OCR `alvio-ocr`
-/// 
+///
 /// # Arguments
 /// * `caminho` - Caminho para o arquivo de imagem (PNG, JPG, JPEG)
-/// 
+///
 /// # Returns
-/// `Ok(texto)` - Texto bruto extraído do cupom
+/// `Ok(OcrOutput)` - Resultado completo do OCR
 /// `Err(OcrError)` - Se houver falha na imagem ou reconhecimento
-pub fn extrair_texto(caminho: &Path) -> Result<String, OcrError> {
+pub fn extrair_texto(caminho: &Path) -> Result<OcrOutput, OcrError> {
     // Validar que o caminho existe
     if !caminho.exists() {
-        return Err(OcrError::CaminhoInvalido);
+        return Err(OcrError::CaminhoInvalido(caminho.display().to_string()));
     }
 
     // Carregar imagem
-    let img = match image::open(caminho) {
-        Ok(img) => img,
-        Err(e) => return Err(OcrError::ImagemInvalida(e)),
-    };
+    let img = image::open(caminho)?;
+    let (largura, altura) = img.dimensions();
 
-    // Converter para RGB se necessário
-    let img_rgb = img.to_rgb8();
-    let (largura, altura) = img_rgb.dimensions();
+    // Converter para grayscale (Luma<u8>)
+    let gray = image::imageops::colorops::grayscale(&img.to_rgb8());
 
-    // 1. Converter para escala de grayscale
-    let gray = grayscale(&img_rgb);
+    // Aplicar binarização adaptativa para melhorar OCR
+    // O block_radius 3 significa janela de 7x7 pixels
+    let block_radius = 3u32;
+    let binary = adaptive_threshold(&gray, block_radius);
 
-    // 2. Aplicar binarização adaptativa para melhorar OCR
-    // Isso ajuda a separar o texto do fundo do cupom
-    let binary = adaptive_threshold(&gray, (cut_rate * 255.0) as u8, 3);
+    // Converter Luma<u8> binarizado para RGB para o alvio-ocr
+    let binary_rgb: ImageBuffer<Rgb<u8>, Vec<u8>> =
+        ImageBuffer::from_fn(binary.width(), binary.height(), |x, y| {
+            let pixel = binary.get_pixel(x, y)[0];
+            Rgb([pixel, pixel, pixel])
+        });
+    let dynamic_img = DynamicImage::ImageRgb8(binary_rgb);
 
-    // 3. Preparar opções para o OCR
-    let mut options = OcrOptions::default();
-    options.cutm = Some(3); // Modelo de corte
-    options.set_threads(threads);
-
-    // 4. Executar OCR usando alvio-ocr
-    let engine = OcrEngine::default();
-    let result: OcrResult = engine.run_ocr(&binary, &options).map_err(|e| {
-        OcrError::FalhaReconhecimento(format!("Erro OCR: {}", e))
+    // Criar motor OCR com configuração padrão
+    let engine = OcrEngine::auto().map_err(|e| {
+        OcrError::FalhaReconhecimento(format!("Erro ao inicializar motor OCR: {}", e))
     })?;
 
-    // Extrair apenas o texto do resultado
-    let texto = result.text.trim().to_string();
+    // Executar OCR
+    let result: OcrResult = engine.recognize_image(&dynamic_img)?;
 
-    // Retornar apenas se houver texto significativo
+    // Extrair texto e confiança do resultado
+    let texto = result.text.trim().to_string();
+    let confianca_media = result.confidence as f64;
+
+    // Log se nenhum texto foi reconhecido
     if texto.is_empty() {
-        warn!("Nenhum texto foi reconhecido na imagem");
+        tracing::warn!(
+            "Nenhum texto foi reconhecido na imagem: {}",
+            caminho.display()
+        );
     }
 
-    Ok(texto)
+    Ok(OcrOutput {
+        texto,
+        confianca_media,
+        largura: largura as usize,
+        altura: altura as usize,
+    })
 }
 
-/// Função auxiliar para criar opções padrão de OCR
-fn get_default_options() -> OcrOptionsWrapper {
-    OcrOptionsWrapper::default()
+/// Função auxiliar para extrair apenas o texto (compatibilidade)
+pub fn extrair_texto_simples(caminho: &Path) -> Result<String, OcrError> {
+    extrair_texto(caminho).map(|output| output.texto)
 }
 
 #[cfg(test)]
@@ -127,9 +135,13 @@ mod tests {
     use std::fs;
 
     #[test]
-    #[should_panic]
     fn test_caminho_invalido() {
-        let _ = extrair_texto(Path::new("/caminho/que/nao/existe.jpg"));
+        let resultado = extrair_texto(Path::new("/caminho/que/nao/existe.jpg"));
+        assert!(resultado.is_err());
+        match resultado {
+            Err(OcrError::CaminhoInvalido(_)) => {}
+            _ => panic!("Erro esperado: CaminhoInvalido"),
+        }
     }
 
     #[test]
@@ -137,23 +149,30 @@ mod tests {
     fn test_extrair_texto_com_fixture() {
         // Usar uma imagem de teste do repositório
         let caminho = Path::new("tests/fixtures/cupom_exemplo.jpg");
-        
+
         if !caminho.exists() {
             // Se o fixture não existir, pular teste
             return;
         }
 
-        let texto = extrair_texto(caminho).expect("Falha ao extrair texto");
-        assert!(!texto.is_empty(), "Texto extraído deve ser não vazio");
+        let output = extrair_texto(caminho).expect("Falha ao extrair texto");
         assert!(
-            texto.len() > 5,
+            !output.texto.is_empty(),
+            "Texto extraído deve ser não vazio"
+        );
+        assert!(
+            output.texto.len() > 5,
             "Texto deve ter mais de 5 caracteres"
+        );
+        assert!(
+            output.confianca_media >= 0.0 && output.confianca_media <= 1.0,
+            "Confiança deve estar entre 0.0 e 1.0"
         );
     }
 
     #[test]
     fn test_opcoes_default() {
-        let opcoes = get_default_options();
+        let opcoes = OcrOptionsWrapper::default();
         assert_eq!(opcoes.cut_rate, 0.5);
         assert_eq!(opcoes.threads, 1);
     }

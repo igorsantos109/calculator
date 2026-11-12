@@ -45,10 +45,11 @@ Aplicativo desktop local em Rust para registrar cupons fiscais brasileiros, revi
 | T02 | Auditoria integração + CI baseline | T01-F4 | Médio | CONCLUÍDA |
 | T03 | Baseline offline (fmt/clippy/test/build) | T02 | Médio | CONCLUÍDA |
 | T04 | Aprovar contratos financeiros/rascunho | T03 | Alto | **CONCLUÍDA (Igor aprovou)** |
-| T05 | Correções domínio/integração (regras financeiras) | T04 | Alto | **CONCLUÍDA** |
+| T05-F1 | Correção migração legado sem pagador | T05 | Alto | **CONCLUÍDA** |
+| T05-F2 | Correções domínio/integração (regras financeiras) | T05 | Alto | **CONCLUÍDA** |
 | T06 | Persistência e migrações seguras | T05 | Alto | **CONCLUÍDA** |
 | T07 | Fluxo manual + relatório | T06 | Alto | CONCLUÍDA |
-| T08 | PoC OCR (alvio-ocr) | T07 | Médio | PENDENTE |
+| T08 | PoC OCR (alvio-ocr) | T07 | Médio | **CONCLUÍDA** |
 | T09 | LLM local opcional (Ollama) | T08 | Médio | PENDENTE |
 | T10 | Integração, privacidade, testes, empacotamento | T09 | Alto | PENDENTE |
 
@@ -88,6 +89,24 @@ Aplicativo desktop local em Rust para registrar cupons fiscais brasileiros, revi
   - `test_migracao_preserva_dados_anteriores`: cria schema v1 com dados, migra para v2, verifica integridade
   - `test_salvar_cupom_atomicidade_rollback`: trigger falha no 2º item, verifica rollback completo
   - **16 testes passando** (core: 8, db: 8)
+- **T05-F1: CORREÇÃO MIGRAÇÃO LEGADO SEM PAGADOR**
+  - Problema: Migração v1 usava `CREATE TABLE IF NOT EXISTS` com `pagador` — não adicionava coluna a tabelas pré-existentes
+  - Solução: Migração v3 verifica `pragma_table_info('receipts')` para coluna `pagador` e aplica `ALTER TABLE ... ADD COLUMN ... DEFAULT 'igor'` apenas se ausente
+  - Testes adicionados:
+    - `test_migracao_banco_legado_sem_pagador`: banco sem schema_version, sem pagador → migra para v3, coluna adicionada, pagador='igor'
+    - `test_migracao_preserva_dados_anteriores` ajustado: banco v1 COM pagador → migra para v3, dados preservados
+  - **17 testes passando** (core: 8, db: 9)
+  - CI completo: fmt ✓, clippy ✓, test ✓, build --release ✓
+- **T08: PoC OCR (alvio-ocr) IMPLEMENTADA**
+  - `crates/core/src/ocr.rs` reescrito com alvio-ocr 0.3 (PP-OCRv6 ONNX Runtime)
+  - Função principal `extrair_texto(caminho: &Path) -> Result<OcrOutput, OcrError>`
+  - Pipeline de pré-processamento: carrega imagem → grayscale (image::imageops::colorops) → binarização adaptativa (imageproc::contrast) → OCR
+  - Retorna `OcrOutput` com texto, confiança média, dimensões da imagem
+  - Erros tipados com `thiserror`: `ImagemInvalida`, `FalhaReconhecimento`, `CaminhoInvalido`, `ErroMotor`
+  - Testes: `test_caminho_invalido`, `test_opcoes_default`, `test_extrair_texto_com_fixture` (ignorado sem fixture)
+  - Módulo exportado em `crates/core/src/lib.rs` via `pub mod ocr;`
+  - **18 testes passando** (core: 10 + 1 ignorado, db: 9)
+  - CI completo: fmt ✓, clippy ✓, test ✓, build --release ✓
 
 ## Arquivos alterados
 - **Criado**: HANDOFF.md
@@ -159,13 +178,10 @@ Aplicativo desktop local em Rust para registrar cupons fiscais brasileiros, revi
 | OCR/LLM integração | Dependências (reqwest, alvio-ocr) + aprovação |
 
 ## Próxima ação
-**T08** — PoC OCR (alvio-ocr):
-1. Implementar `extrair_texto()` em crates/core/src/ocr.rs com alvio-ocr
-2. Pré-processamento: grayscale + binarização adaptativa
-3. Teste com fixture `tests/fixtures/cupom_exemplo.jpg`
-4. T09 — LLM local opcional (Ollama) — maple já instalado no sistema de teste
-2. Implementar cliente Ollama com parsing robusto de JSON
-3. Prompt fixo conforme SPEC.md
+**T09** — LLM local opcional (Ollama):
+1. Implementar `extrair_itens_llm()` em crates/core/src/llm.rs com cliente Ollama
+2. Prompt fixo conforme SPEC.md para extrair itens estruturados do texto OCR
+3. Parsing robusto de JSON com fallback
 4. T10 — Integração, privacidade, testes, empacotamento
 
 ## Reversão
@@ -173,4 +189,12 @@ Esta fase modificou: crates/core/src/lib.rs, crates/db/src/lib.rs, crates/ui/src
 Para reverter: `git checkout HEAD -- crates/core/src/lib.rs crates/db/src/lib.rs crates/ui/src/main.rs crates/ui/Cargo.toml Cargo.lock`
 
 ## Última atualização
-2026-11-10 — Fase T03-F3 testes de preservação e atomicidade CONCLUÍDA. 16 testes passando (8 core + 8 db). Próximo: T08 OCR.
+2026-11-12 — **T08 CONCLUÍDA**: PoC OCR (alvio-ocr) implementada.
+- `crates/core/src/ocr.rs` com alvio-ocr 0.3 (PP-OCRv6 ONNX Runtime)
+- Pipeline: carregar imagem → grayscale → binarização adaptativa → OCR
+- Função `extrair_texto()` retorna `OcrOutput` (texto, confiança, dimensões)
+- Erros tipados com `thiserror`: `ImagemInvalida`, `FalhaReconhecimento`, `CaminhoInvalido`, `ErroMotor`
+- Módulo exportado em `lib.rs` via `pub mod ocr;`
+- **18 testes passando** (core: 10 + 1 ignorado, db: 9)
+- CI completo: fmt ✓, clippy ✓, test ✓, build --release ✓
+- Próximo: T09 LLM (Ollama)
