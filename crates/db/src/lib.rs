@@ -61,6 +61,12 @@ pub enum DbError {
 
     #[error("Falha na migração: {0}")]
     MigracaoFalhou(String),
+
+    #[error("Tabela schema_version existe mas não possui a coluna 'version'")]
+    SchemaVersionInvalida,
+
+    #[error("Tabela schema_version ausente em banco legado (esperado)")]
+    SchemaVersionAusenteBancoLegado,
 }
 
 /// Versão atual do schema do banco de dados.
@@ -160,14 +166,31 @@ impl Repositorio {
 
     /// Aplica uma migração se ainda não foi aplicada.
     fn aplicar_migracao(conn: &mut Connection, migracao: &Migracao) -> SqliteResult<(), DbError> {
-        // Verificar se a migração já foi aplicada
-        let ja_aplicada: bool = conn
-            .query_row(
+        // Verificar se a tabela schema_version existe
+        let tabela_existe: bool = match conn.query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'",
+            [],
+            |_| Ok(true),
+        ) {
+            Ok(v) => v,
+            Err(rusqlite::Error::QueryReturnedNoRows) => false,
+            Err(e) => return Err(DbError::Sqlite(e)),
+        };
+
+        // Verificar se a migração já foi aplicada (se tabela existe)
+        let ja_aplicada: bool = if tabela_existe {
+            match conn.query_row(
                 "SELECT 1 FROM schema_version WHERE version = ?1",
                 params![migracao.versao],
                 |_| Ok(true),
-            )
-            .unwrap_or(false);
+            ) {
+                Ok(v) => v,
+                Err(rusqlite::Error::QueryReturnedNoRows) => false,
+                Err(e) => return Err(DbError::Sqlite(e)),
+            }
+        } else {
+            false
+        };
 
         if ja_aplicada {
             return Ok(());
@@ -176,15 +199,16 @@ impl Repositorio {
         // Para a migração v3 (adicionar coluna pagador se ausente),
         // verificamos se a coluna já existe antes de tentar adicionar
         if migracao.versao == 3 {
-            // Para a migração v3 (adicionar coluna pagador se ausente),
-            // verificamos se a coluna já existe antes de tentar adicionar
-            let coluna_existe: bool = conn
-                .query_row(
-                    "SELECT 1 FROM pragma_table_info('receipts') WHERE name = 'pagador'",
-                    [],
-                    |_| Ok(true),
-                )
-                .unwrap_or(false);
+            // Verificar se a coluna pagador já existe
+            let coluna_existe: bool = match conn.query_row(
+                "SELECT 1 FROM pragma_table_info('receipts') WHERE name = 'pagador'",
+                [],
+                |_| Ok(true),
+            ) {
+                Ok(v) => v,
+                Err(rusqlite::Error::QueryReturnedNoRows) => false,
+                Err(e) => return Err(DbError::Sqlite(e)),
+            };
 
             if !coluna_existe {
                 // Aplicar migração em transação
@@ -205,13 +229,15 @@ impl Repositorio {
                 tx.commit()?;
             } else {
                 // Coluna já existe, apenas registrar a migração se não estiver registrada
-                let ja_aplicada: bool = conn
-                    .query_row(
-                        "SELECT 1 FROM schema_version WHERE version = ?1",
-                        params![migracao.versao],
-                        |_| Ok(true),
-                    )
-                    .unwrap_or(false);
+                let ja_aplicada: bool = match conn.query_row(
+                    "SELECT 1 FROM schema_version WHERE version = ?1",
+                    params![migracao.versao],
+                    |_| Ok(true),
+                ) {
+                    Ok(v) => v,
+                    Err(rusqlite::Error::QueryReturnedNoRows) => false,
+                    Err(e) => return Err(DbError::Sqlite(e)),
+                };
 
                 if !ja_aplicada {
                     conn.execute(
@@ -247,13 +273,48 @@ impl Repositorio {
 
     /// Obtém a versão atual do schema no banco.
     pub fn versao_atual(conn: &Connection) -> SqliteResult<i64, DbError> {
-        let versao: i64 = conn
-            .query_row(
-                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
+        // Primeiro, verificar se a tabela schema_version existe
+        let tabela_existe: bool = match conn.query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'",
+            [],
+            |_| Ok(true),
+        ) {
+            Ok(v) => v,
+            Err(rusqlite::Error::QueryReturnedNoRows) => false,
+            Err(e) => return Err(DbError::Sqlite(e)),
+        };
+
+        if !tabela_existe {
+            // Banco legado sem tabela de versionamento - versão 0
+            return Ok(0);
+        }
+
+        // Verificar se a tabela tem a coluna 'version'
+        let tem_coluna_version: bool = match conn.query_row(
+            "SELECT 1 FROM pragma_table_info('schema_version') WHERE name = 'version'",
+            [],
+            |_| Ok(true),
+        ) {
+            Ok(v) => v,
+            Err(rusqlite::Error::QueryReturnedNoRows) => false,
+            Err(e) => return Err(DbError::Sqlite(e)),
+        };
+
+        if !tem_coluna_version {
+            // Tabela existe mas não tem coluna version - estrutura inválida
+            return Err(DbError::SchemaVersionInvalida);
+        }
+
+        // Tabela existe e tem coluna version - ler versão
+        let versao: i64 = match conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |row| row.get(0),
+        ) {
+            Ok(v) => v,
+            Err(rusqlite::Error::QueryReturnedNoRows) => 0,
+            Err(e) => return Err(DbError::Sqlite(e)),
+        };
         Ok(versao)
     }
 
@@ -835,16 +896,15 @@ CREATE INDEX idx_items_receipt ON items(receipt_id);",
         conn.execute_batch("DROP TRIGGER trigger_falha_segundo_item;")
             .unwrap();
     }
-}
 
-/// Teste A: Banco legado sem schema_version e sem pagador
-#[test]
-fn test_migracao_banco_legado_sem_pagador() {
-    let mut conn = Connection::open_in_memory().unwrap();
+    /// Teste A: Banco legado sem schema_version e sem pagador
+    #[test]
+    fn test_migracao_banco_legado_sem_pagador() {
+        let mut conn = Connection::open_in_memory().unwrap();
 
-    // Criar schema legado SEM pagador (simulando banco antigo real)
-    conn.execute_batch(
-        "PRAGMA foreign_keys = ON;
+        // Criar schema legado SEM pagador (simulando banco antigo real)
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
 
 CREATE TABLE receipts (
     id INTEGER PRIMARY KEY,
@@ -866,100 +926,100 @@ CREATE TABLE items (
 );
 
 CREATE INDEX idx_items_receipt ON items(receipt_id);",
-    )
-    .unwrap();
+        )
+        .unwrap();
 
-    // Inserir dados legados
-    conn.execute(
+        // Inserir dados legados
+        conn.execute(
         "INSERT INTO receipts (data_compra, estabelecimento, total_cupom, imagem_path, criado_em) 
          VALUES ('2024-01-15', 'Mercado Legado', 150.0, '/legacy/img.jpg', '2024-01-15T10:00:00')",
         [],
     )
     .unwrap();
-    let receipt_id = conn.last_insert_rowid();
+        let receipt_id = conn.last_insert_rowid();
 
-    conn.execute(
+        conn.execute(
         "INSERT INTO items (receipt_id, descricao, quantidade, preco_unitario, preco_total, grupo) 
          VALUES (?1, 'Arroz', 1.0, 20.0, 20.0, 'casa')",
         params![receipt_id],
     )
     .unwrap();
 
-    conn.execute(
+        conn.execute(
         "INSERT INTO items (receipt_id, descricao, quantidade, preco_unitario, preco_total, grupo) 
          VALUES (?1, 'Feijão', 1.0, 8.0, 8.0, 'igor')",
         params![receipt_id],
     )
     .unwrap();
 
-    // Verificar estrutura antes
-    let cols_before: Vec<String> = conn
-        .prepare("PRAGMA table_info(receipts)")
-        .unwrap()
-        .query_map([], |row| row.get(1))
-        .unwrap()
-        .map(|r| r.unwrap())
-        .collect();
-    println!("Colunas antes: {:?}", cols_before);
-    assert!(
-        !cols_before.contains(&"pagador".to_string()),
-        "pagador não deve existir antes"
-    );
+        // Verificar estrutura antes
+        let cols_before: Vec<String> = conn
+            .prepare("PRAGMA table_info(receipts)")
+            .unwrap()
+            .query_map([], |row| row.get(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        println!("Colunas antes: {:?}", cols_before);
+        assert!(
+            !cols_before.contains(&"pagador".to_string()),
+            "pagador não deve existir antes"
+        );
 
-    // Criar tabela schema_version e inserir v1
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS schema_version (
+        // Criar tabela schema_version e inserir v1
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_version (
             version INTEGER PRIMARY KEY,
             applied_at TEXT NOT NULL DEFAULT (datetime('now')),
             description TEXT
         );",
-    )
-    .unwrap();
+        )
+        .unwrap();
 
-    conn.execute(
-        "INSERT INTO schema_version (version, description) VALUES (1, 'Schema inicial')",
-        [],
-    )
-    .unwrap();
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (1, 'Schema inicial')",
+            [],
+        )
+        .unwrap();
 
-    // Executar migração
-    let result = Repositorio::migrar(&mut conn);
-    assert!(result.is_ok(), "Migração deveria ter sucesso");
+        // Executar migração
+        let result = Repositorio::migrar(&mut conn);
+        assert!(result.is_ok(), "Migração deveria ter sucesso");
 
-    // Verificar que coluna pagador foi adicionada
-    let cols_after: Vec<String> = conn
-        .prepare("PRAGMA table_info(receipts)")
-        .unwrap()
-        .query_map([], |row| row.get(1))
-        .unwrap()
-        .map(|r| r.unwrap())
-        .collect();
-    println!("Colunas depois: {:?}", cols_after);
-    assert!(
-        cols_after.contains(&"pagador".to_string()),
-        "pagador deve existir depois"
-    );
+        // Verificar que coluna pagador foi adicionada
+        let cols_after: Vec<String> = conn
+            .prepare("PRAGMA table_info(receipts)")
+            .unwrap()
+            .query_map([], |row| row.get(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        println!("Colunas depois: {:?}", cols_after);
+        assert!(
+            cols_after.contains(&"pagador".to_string()),
+            "pagador deve existir depois"
+        );
 
-    // Verificar versão
-    let versao = Repositorio::versao_atual(&conn).unwrap();
-    assert_eq!(versao, 3);
+        // Verificar versão
+        let versao = Repositorio::versao_atual(&conn).unwrap();
+        assert_eq!(versao, 3);
 
-    // Verificar que dados foram preservados via repositório
-    let cupom = Repositorio::buscar_cupom(&conn, 1).unwrap().unwrap();
-    assert_eq!(cupom.receita.estabelecimento, "Mercado Legado");
-    assert_eq!(cupom.receita.total_cupom, 150.0);
-    // pagador deve ter valor padrão 'igor' (DEFAULT da coluna adicionada)
-    assert_eq!(cupom.receita.pagador, "igor");
+        // Verificar que dados foram preservados via repositório
+        let cupom = Repositorio::buscar_cupom(&conn, 1).unwrap().unwrap();
+        assert_eq!(cupom.receita.estabelecimento, "Mercado Legado");
+        assert_eq!(cupom.receita.total_cupom, 150.0);
+        // pagador deve ter valor padrão 'igor' (DEFAULT da coluna adicionada)
+        assert_eq!(cupom.receita.pagador, "igor");
 
-    let itens = Repositorio::buscar_itens_por_receipt_id(&conn, 1).unwrap();
-    assert_eq!(itens.len(), 2);
-    assert_eq!(itens[0].item.descricao, "Arroz");
-    assert_eq!(itens[0].grupo, Grupo::Casa);
-    assert_eq!(itens[1].item.descricao, "Feijão");
-    assert_eq!(itens[1].grupo, Grupo::Igor);
-}
+        let itens = Repositorio::buscar_itens_por_receipt_id(&conn, 1).unwrap();
+        assert_eq!(itens.len(), 2);
+        assert_eq!(itens[0].item.descricao, "Arroz");
+        assert_eq!(itens[0].grupo, Grupo::Casa);
+        assert_eq!(itens[1].item.descricao, "Feijão");
+        assert_eq!(itens[1].grupo, Grupo::Igor);
+    }
 
-/// Teste A: Legado realmente sem schema_version.
+    /// Teste A: Legado realmente sem schema_version.
     /// Cria receipts/items SEM pagador E SEM schema_version,
     /// então chama migrar() que deve adicionar a coluna e registrar v3.
     #[test]
@@ -1201,3 +1261,187 @@ CREATE INDEX idx_items_receipt ON items(receipt_id);",
         assert_eq!(itens[1].item.descricao, "Salada");
         assert_eq!(itens[1].grupo, Grupo::Igor);
     }
+
+    /// Teste C: Banco já compatível (com pagador renan explícito).
+    /// Insere pagador explicitamente como 'renan', executa migrar() duas vezes,
+    /// verifica que renan é preservado e não há duplicação.
+    #[test]
+    fn test_banco_compativel_com_renan() {
+        let mut conn = Connection::open_in_memory().unwrap();
+
+        // Criar schema completo (v1 já inclui pagador)
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+
+CREATE TABLE receipts (
+    id INTEGER PRIMARY KEY,
+    data_compra TEXT,
+    estabelecimento TEXT,
+    total_cupom REAL NOT NULL,
+    imagem_path TEXT,
+    pagador TEXT NOT NULL CHECK(pagador IN ('igor','renan')) DEFAULT 'igor',
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE items (
+    id INTEGER PRIMARY KEY,
+    receipt_id INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+    descricao TEXT NOT NULL,
+    quantidade REAL NOT NULL,
+    preco_unitario REAL NOT NULL,
+    preco_total REAL NOT NULL,
+    grupo TEXT NOT NULL CHECK(grupo IN ('casa','igor','renan'))
+);
+
+CREATE INDEX idx_items_receipt ON items(receipt_id);
+
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now')),
+    description TEXT
+);",
+        )
+        .unwrap();
+
+        // Inserir cupom com pagador explicitamente 'renan'
+        conn.execute(
+            "INSERT INTO receipts (data_compra, estabelecimento, total_cupom, imagem_path, pagador, criado_em) 
+             VALUES ('2024-07-01', 'Mercado Atual', 400.0, '/current/img.jpg', 'renan', '2024-07-01T10:00:00')",
+            [],
+        )
+        .unwrap();
+        let receipt_id = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO items (receipt_id, descricao, quantidade, preco_unitario, preco_total, grupo) 
+             VALUES (?1, 'Produto A', 2.0, 20.0, 40.0, 'casa')",
+            params![receipt_id],
+        )
+        .unwrap();
+
+        // Registrar versão 3 (já compatível)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (3, 'Schema completo')",
+            [],
+        )
+        .unwrap();
+
+        // Primeira execução de migrar() - deve ser idempotente
+        let result1 = Repositorio::migrar(&mut conn);
+        assert!(result1.is_ok(), "Primeira migrar() deveria ter sucesso");
+
+        // Verificar que pagador 'renan' foi preservado
+        let cupom = Repositorio::buscar_cupom(&conn, receipt_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            cupom.receita.pagador, "renan",
+            "Pagador renan deve ser preservado"
+        );
+        assert_eq!(cupom.receita.estabelecimento, "Mercado Atual");
+        assert_eq!(cupom.receita.total_cupom, 400.0);
+
+        // Segunda execução de migrar() - testar idempotência
+        let result2 = Repositorio::migrar(&mut conn);
+        assert!(
+            result2.is_ok(),
+            "Segunda migrar() deveria ter sucesso (idempotente)"
+        );
+
+        // Verificar que dados ainda estão corretos após segunda execução
+        let cupom2 = Repositorio::buscar_cupom(&conn, receipt_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            cupom2.receita.pagador, "renan",
+            "Pagador renan deve ser preservado após segunda migrar"
+        );
+        assert_eq!(cupom2.receita.estabelecimento, "Mercado Atual");
+        assert_eq!(cupom2.receita.total_cupom, 400.0);
+
+        // Verificar que não há duplicação de itens
+        let itens = Repositorio::buscar_itens_por_receipt_id(&conn, receipt_id).unwrap();
+        assert_eq!(itens.len(), 1, "Não deveria haver duplicação de itens");
+        assert_eq!(itens[0].item.descricao, "Produto A");
+        assert_eq!(itens[0].grupo, Grupo::Casa);
+    }
+
+    /// Teste D: Estrutura de versionamento inválida.
+    /// schema_version EXISTS mas sem a coluna 'version' - migrar() deve retornar erro,
+    /// não tratar banco como novo (não deve mascarar erro como versão 0).
+    #[test]
+    fn test_estrutura_versionamento_invalida() {
+        let mut conn = Connection::open_in_memory().unwrap();
+
+        // Criar tabelas base sem schema_version
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+
+CREATE TABLE receipts (
+    id INTEGER PRIMARY KEY,
+    data_compra TEXT,
+    estabelecimento TEXT,
+    total_cupom REAL NOT NULL,
+    imagem_path TEXT,
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE items (
+    id INTEGER PRIMARY KEY,
+    receipt_id INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+    descricao TEXT NOT NULL,
+    quantidade REAL NOT NULL,
+    preco_unitario REAL NOT NULL,
+    preco_total REAL NOT NULL,
+    grupo TEXT NOT NULL CHECK(grupo IN ('casa','igor','renan'))
+);
+
+CREATE INDEX idx_items_receipt ON items(receipt_id);",
+        )
+        .unwrap();
+
+        // Criar schema_version SEM a coluna 'version' (apenas 'id' column)
+        conn.execute_batch(
+            "CREATE TABLE schema_version (
+                id INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        )
+        .unwrap();
+
+        // Inserir registro sem a coluna version
+        conn.execute(
+            "INSERT INTO schema_version (id, applied_at) VALUES (1, '2024-01-01')",
+            [],
+        )
+        .unwrap();
+
+        // versao_atual() deve retornar erro explícito
+        let versao = Repositorio::versao_atual(&conn);
+        assert!(
+            versao.is_err(),
+            "versao_atual deveria retornar erro para schema_version inválida"
+        );
+        match versao {
+            Err(DbError::SchemaVersionInvalida) => {
+                // Erro esperado
+            }
+            Err(e) => panic!("Esperado SchemaVersionInvalida, recebido: {:?}", e),
+            Ok(v) => panic!("Esperado erro, mas obteve versão {}", v),
+        }
+
+        // migrar() deve propagar o erro
+        let result = Repositorio::migrar(&mut conn);
+        assert!(
+            result.is_err(),
+            "migrar() deveria retornar erro para schema_version inválida"
+        );
+        match result {
+            Err(DbError::SchemaVersionInvalida) => {
+                // Erro esperado
+            }
+            Err(e) => panic!("Esperado SchemaVersionInvalida, recebido: {:?}", e),
+            Ok(_) => panic!("Esperado erro, mas migrar() retornou Ok"),
+        }
+    }
+}
