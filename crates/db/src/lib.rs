@@ -958,3 +958,246 @@ CREATE INDEX idx_items_receipt ON items(receipt_id);",
     assert_eq!(itens[1].item.descricao, "Feijão");
     assert_eq!(itens[1].grupo, Grupo::Igor);
 }
+
+/// Teste A: Legado realmente sem schema_version.
+    /// Cria receipts/items SEM pagador E SEM schema_version,
+    /// então chama migrar() que deve adicionar a coluna e registrar v3.
+    #[test]
+    fn test_legado_sem_schema_version() {
+        let mut conn = Connection::open_in_memory().unwrap();
+
+        // Criar schema legado SEM pagador E SEM schema_version
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+
+CREATE TABLE receipts (
+    id INTEGER PRIMARY KEY,
+    data_compra TEXT,
+    estabelecimento TEXT,
+    total_cupom REAL NOT NULL,
+    imagem_path TEXT,
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE items (
+    id INTEGER PRIMARY KEY,
+    receipt_id INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+    descricao TEXT NOT NULL,
+    quantidade REAL NOT NULL,
+    preco_unitario REAL NOT NULL,
+    preco_total REAL NOT NULL,
+    grupo TEXT NOT NULL CHECK(grupo IN ('casa','igor','renan'))
+);
+
+CREATE INDEX idx_items_receipt ON items(receipt_id);",
+        )
+        .unwrap();
+
+        // Inserir dados legados sem pagador
+        conn.execute(
+            "INSERT INTO receipts (data_compra, estabelecimento, total_cupom, imagem_path, criado_em) 
+             VALUES ('2024-03-10', 'Mercado Legado', 200.0, '/legacy2/img.jpg', '2024-03-10T10:00:00')",
+            [],
+        )
+        .unwrap();
+        let receipt_id = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO items (receipt_id, descricao, quantidade, preco_unitario, preco_total, grupo) 
+             VALUES (?1, 'Arroz', 3.0, 15.0, 45.0, 'casa')",
+            params![receipt_id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO items (receipt_id, descricao, quantidade, preco_unitario, preco_total, grupo) 
+             VALUES (?1, 'Feijão', 2.0, 25.0, 50.0, 'igor')",
+            params![receipt_id],
+        )
+        .unwrap();
+
+        // Verificar estrutura antes: pagador deve NÃO existir
+        let cols_before: Vec<String> = conn
+            .prepare("PRAGMA table_info(receipts)")
+            .unwrap()
+            .query_map([], |row| row.get(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            !cols_before.contains(&"pagador".to_string()),
+            "pagador não deve existir antes da migração"
+        );
+
+        // NÃO criar schema_version - simular banco legado verdadeiro
+        // Executar migração (v3 deve adicionar coluna pagador)
+        let result = Repositorio::migrar(&mut conn);
+        assert!(
+            result.is_ok(),
+            "Migração deveria ter sucesso ao adicionar coluna pagador ausente"
+        );
+
+        // Verificar que coluna pagador foi adicionada
+        let cols_after: Vec<String> = conn
+            .prepare("PRAGMA table_info(receipts)")
+            .unwrap()
+            .query_map([], |row| row.get(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            cols_after.contains(&"pagador".to_string()),
+            "pagador deve existir depois da migração"
+        );
+
+        // Verificar versão avançou para 3
+        let versao = Repositorio::versao_atual(&conn).unwrap();
+        assert_eq!(versao, 3, "Versão deveria ser 3 após migração");
+
+        // Verificar dados preservados via repositório
+        let cupom = Repositorio::buscar_cupom(&conn, receipt_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(cupom.receita.estabelecimento, "Mercado Legado");
+        assert_eq!(cupom.receita.total_cupom, 200.0);
+        // Coluna nova tem DEFAULT 'igor', então pagador deve ser 'igor'
+        assert_eq!(cupom.receita.pagador, "igor");
+
+        let itens = Repositorio::buscar_itens_por_receipt_id(&conn, receipt_id).unwrap();
+        assert_eq!(itens.len(), 2);
+        assert_eq!(itens[0].item.descricao, "Arroz");
+        assert_eq!(itens[0].grupo, Grupo::Casa);
+        assert_eq!(itens[1].item.descricao, "Feijão");
+        assert_eq!(itens[1].grupo, Grupo::Igor);
+    }
+
+    /// Teste B: Banco marcado como v2 sem pagador.
+    /// Cria schema com v1 e v2 registrados, mas sem coluna pagador,
+    /// então migrar() (v3) deve adicionar a coluna preservando dados.
+    #[test]
+    fn test_banco_marcado_v2_sem_pagador() {
+        let mut conn = Connection::open_in_memory().unwrap();
+
+        // Criar tabelas base
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+
+CREATE TABLE receipts (
+    id INTEGER PRIMARY KEY,
+    data_compra TEXT,
+    estabelecimento TEXT,
+    total_cupom REAL NOT NULL,
+    imagem_path TEXT,
+    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE items (
+    id INTEGER PRIMARY KEY,
+    receipt_id INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+    descricao TEXT NOT NULL,
+    quantidade REAL NOT NULL,
+    preco_unitario REAL NOT NULL,
+    preco_total REAL NOT NULL,
+    grupo TEXT NOT NULL CHECK(grupo IN ('casa','igor','renan'))
+);
+
+CREATE INDEX idx_items_receipt ON items(receipt_id);",
+        )
+        .unwrap();
+
+        // Inserir dados legados
+        conn.execute(
+            "INSERT INTO receipts (data_compra, estabelecimento, total_cupom, imagem_path, criado_em) 
+             VALUES ('2024-06-01', 'Mercado Teste', 300.0, '/test/img.jpg', '2024-06-01T10:00:00')",
+            [],
+        )
+        .unwrap();
+        let receipt_id = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO items (receipt_id, descricao, quantidade, preco_unitario, preco_total, grupo) 
+             VALUES (?1, 'Carne', 1.0, 100.0, 100.0, 'casa')",
+            params![receipt_id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO items (receipt_id, descricao, quantidade, preco_unitario, preco_total, grupo) 
+             VALUES (?1, 'Salada', 2.0, 50.0, 100.0, 'igor')",
+            params![receipt_id],
+        )
+        .unwrap();
+
+        // Criar schema_version e registrar versões 1 e 2 (como se tivesse passado pelas migrações antigas)
+        // Mas NÃO adicionar coluna pagador (banco pularam esta etapa ou veio de sistema legado)
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now')),
+                description TEXT
+            );",
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (1, 'Schema inicial')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (2, 'Migração histórica')",
+            [],
+        )
+        .unwrap();
+
+        // Verificar que pagador não existe
+        let cols_before: Vec<String> = conn
+            .prepare("PRAGMA table_info(receipts)")
+            .unwrap()
+            .query_map([], |row| row.get(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            !cols_before.contains(&"pagador".to_string()),
+            "pagador não deve existir antes da migração v3"
+        );
+
+        // Executar migração v3
+        let result = Repositorio::migrar(&mut conn);
+        assert!(
+            result.is_ok(),
+            "Migração v3 deveria ter sucesso ao adicionar coluna pagador"
+        );
+
+        // Verificar que coluna pagador foi adicionada
+        let cols_after: Vec<String> = conn
+            .prepare("PRAGMA table_info(receipts)")
+            .unwrap()
+            .query_map([], |row| row.get(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            cols_after.contains(&"pagador".to_string()),
+            "pagador deve existir depois da migração v3"
+        );
+
+        // Verificar versão avançou para 3
+        let versao = Repositorio::versao_atual(&conn).unwrap();
+        assert_eq!(versao, 3, "Versão deveria avançar de 2 para 3");
+
+        // Verificar dados preservados via repositório
+        let cupom = Repositorio::buscar_cupom(&conn, receipt_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(cupom.receita.estabelecimento, "Mercado Teste");
+        assert_eq!(cupom.receita.total_cupom, 300.0);
+        // Coluna nova tem DEFAULT 'igor', então pagador deve ser 'igor'
+        assert_eq!(cupom.receita.pagador, "igor");
+
+        let itens = Repositorio::buscar_itens_por_receipt_id(&conn, receipt_id).unwrap();
+        assert_eq!(itens.len(), 2);
+        assert_eq!(itens[0].item.descricao, "Carne");
+        assert_eq!(itens[0].grupo, Grupo::Casa);
+        assert_eq!(itens[1].item.descricao, "Salada");
+        assert_eq!(itens[1].grupo, Grupo::Igor);
+    }
