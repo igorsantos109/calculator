@@ -198,3 +198,54 @@ Para reverter: `git checkout HEAD -- crates/core/src/lib.rs crates/db/src/lib.rs
 - **18 testes passando** (core: 10 + 1 ignorado, db: 9)
 - CI completo: fmt ✓, clippy ✓, test ✓, build --release ✓
 - Próximo: T09 LLM (Ollama)
+
+## T05-F3: RECONCILIAR E CONCLUIR AS MIGRAÇÕES (2026-11-12)
+
+### Contexto
+- Commit local `bc23d6d` (HEAD anterior) com 2 testes novos; remoto `origin/main` em `4323f33`
+- HEAD descende de `4323f33` (filho direto)
+- 2 arquivos backup não rastreados (`.orig-T05-F2`), 1 backup novo (`.orig-T05-F3`)
+
+### Testes já escritos (verificados por leitura)
+- `test_legado_sem_schema_version`: ✓ NÃO cria schema_version antes de migrar()
+- `test_banco_marcado_v2_sem_pagador`: ✓ Registra v1 e v2, sem coluna pagador antes de migrar()
+
+### Cobertura adicionada (Passo 4)
+- **Teste C** `test_banco_compativel_com_renan`: banco com pagador 'renan' explícito, migrar() 2×, renan preservado, sem duplicação, itens intactos
+- **Teste D** `test_estrutura_versionamento_invalida`: schema_version sem coluna 'version' → erro explícito `DbError::SchemaVersionInvalida`, não trata como versão 0
+
+### Correção de mascaramento de erros (Passo 5)
+- **aplicar_migracao**: diferencia `QueryReturnedNoRows` (não aplicada) de erro SQL real; tabela `schema_version` ausente tratada como versão 0 (banco legado); propaga erros reais como `DbError::Sqlite`
+- **versao_atual**: verifica existência de tabela `schema_version` ANTES de consultar; se ausente → `Ok(0)`; se existe mas sem coluna `version` → `Err(DbError::SchemaVersionInvalida)`; erros SQL propagados
+- **migrar**: chama `versao_atual()` que já propaga erros estruturais; não converte erros em versão 0 silenciosamente
+- Mantido: transação atômica (alteração + registro), idempotência, migração v3 preservada, sem reescrita de versões históricas, sem perda de dados
+- Novos erros em `DbError`: `SchemaVersionInvalida`, `SchemaVersionAusenteBancoLegado` (não usado, substituído por `Ok(0)`)
+
+### Verificação (Passo 6)
+```bash
+cargo fmt --all -- --check      # OK
+cargo clippy -p db --all-targets --offline --locked -- -D warnings  # OK
+cargo test --workspace --offline --locked  # 13/13 db, 10/10 core, 0/0 bin, 0/0 doc-tests
+cargo build --workspace --release --offline --locked  # OK
+```
+Todos os 4 novos testes executados por filtro (1 teste cada, não 0).
+
+### Totais reais por pacote
+- **db**: 13 aprovados, 0 falhos, 0 ignorados
+- **receipt_core**: 10 aprovados, 0 falhos, 1 ignorado (OCR fixture)
+- **leitor_cupons**: 0 testes
+- **doc-tests**: 0 testes
+
+### Desvio do bc23d6d
+- `bc23d6d` não publicado no GitHub (remoto em `4323f33`)
+- Commit local `70db433` (este) inclui T05-F3 completo; `bc23d6d` permanece no histórico local
+- Divergência resolvida sem push forçado; push autorizado apenas após revisão
+
+### Limitações
+- OCR integrado mas não validado offline (teste `test_extrair_texto_com_fixture` ignorado)
+- Nenhum banco real alterado
+- Backups: `.orig-T05-F2`, `.orig-T05-F3` mantidos
+- Reversão: `git checkout HEAD~1 -- crates/db/src/lib.rs` (ou HEAD~2 para voltar a 4323f33)
+
+### Próxima tarefa
+**T09** — LLM local opcional (Ollama): implementar `extrair_itens_llm()` em `crates/core/src/llm.rs` com cliente Ollama, prompt fixo SPEC.md, parsing JSON robusto com fallback.
