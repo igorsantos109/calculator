@@ -12,6 +12,7 @@ use std::path::Path;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CupomCompleto {
     /// ID do cupom no banco de dados (0 para novos cupons)
+    #[serde(default)]
     pub id: i64,
     /// Cabeçalho do recibo
     pub receita: Receita,

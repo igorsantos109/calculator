@@ -306,8 +306,14 @@ impl ClienteLlm {
         let requisicao = RequisicaoChat {
             model: &self.config.llm_model,
             messages: vec![
-                Mensagem { role: "system", content: MENSAGEM_SYSTEM },
-                Mensagem { role: "user", content: prompt },
+                Mensagem {
+                    role: "system",
+                    content: MENSAGEM_SYSTEM,
+                },
+                Mensagem {
+                    role: "user",
+                    content: prompt,
+                },
             ],
             temperature: 0.1,
             max_tokens: self.config.max_tokens,
@@ -391,10 +397,7 @@ impl ClienteLlm {
 
         let truncado = finish_reason.as_deref() == Some("length");
 
-        Ok(RespostaInterpretada {
-            conteudo,
-            truncado,
-        })
+        Ok(RespostaInterpretada { conteudo, truncado })
     }
 
     /// Extrai o JSON da resposta, tolerante a:
@@ -578,7 +581,10 @@ mod tests {
         .await;
 
         let cliente = ClienteLlm::new(config_teste(&servidor.uri())).unwrap();
-        let resultado = cliente.extrair_itens("Leite 1L - R$ 5,50", 5.50).await.unwrap();
+        let resultado = cliente
+            .extrair_itens("Leite 1L - R$ 5,50", 5.50)
+            .await
+            .unwrap();
 
         assert_eq!(resultado.itens.len(), 1);
         assert_eq!(resultado.itens[0].descricao, "Leite");
@@ -607,30 +613,27 @@ mod tests {
 
     #[tokio::test]
     async fn test_extrair_itens_json_quebrado() {
-        let servidor = servidor_false(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        let servidor =
+            servidor_false(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "choices": [{
                     "message": { "content": "Isso nao e JSON valido {{{" },
                     "finish_reason": "stop"
                 }]
-            })),
-        )
-        .await;
+            })))
+            .await;
 
         let cliente = ClienteLlm::new(config_teste(&servidor.uri())).unwrap();
         let resultado = cliente.extrair_itens("x", 0.0).await;
 
         assert!(resultado.is_err());
-        assert!(matches!(
-            resultado.unwrap_err(),
-            LlmError::JsonInvalido(_)
-        ));
+        assert!(matches!(resultado.unwrap_err(), LlmError::JsonInvalido(_)));
     }
 
     #[tokio::test]
     async fn test_extrair_itens_401_chave_invalida() {
         let servidor = servidor_false(
-            ResponseTemplate::new(401).set_body_json(serde_json::json!({"error": {"message": "Invalid API Key"}})),
+            ResponseTemplate::new(401)
+                .set_body_json(serde_json::json!({"error": {"message": "Invalid API Key"}})),
         )
         .await;
 
@@ -647,7 +650,8 @@ mod tests {
     #[tokio::test]
     async fn test_extrair_itens_500_servidor_indisponivel() {
         let servidor = servidor_false(
-            ResponseTemplate::new(500).set_body_json(serde_json::json!({"error": {"message": "Internal error"}})),
+            ResponseTemplate::new(500)
+                .set_body_json(serde_json::json!({"error": {"message": "Internal error"}})),
         )
         .await;
 
@@ -663,24 +667,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_extrair_itens_resposta_truncada() {
-        let servidor = servidor_false(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        let servidor =
+            servidor_false(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "choices": [{
                     "message": { "content": "{\"itens\":[{\"descricao\":\"Leite\"" },
                     "finish_reason": "length"
                 }]
-            })),
-        )
-        .await;
+            })))
+            .await;
 
         let cliente = ClienteLlm::new(config_teste(&servidor.uri())).unwrap();
         let resultado = cliente.extrair_itens("x", 0.0).await;
 
         assert!(resultado.is_err());
-        assert!(matches!(
-            resultado.unwrap_err(),
-            LlmError::RespostaTruncada
-        ));
+        assert!(matches!(resultado.unwrap_err(), LlmError::RespostaTruncada));
     }
 
     #[tokio::test]
@@ -701,7 +701,10 @@ mod tests {
 
         assert_eq!(resultado.itens.len(), 1);
         assert_eq!(resultado.itens[0].descricao, "Leite");
-        assert!(!resultado.avisos.is_empty(), "deve haver aviso para item inválido");
+        assert!(
+            !resultado.avisos.is_empty(),
+            "deve haver aviso para item inválido"
+        );
         assert!(resultado.avisos[0].contains("Invalido"));
         // soma reportada é só dos itens válidos
         assert!((resultado.soma_itens - 5.5).abs() < f64::EPSILON);
@@ -758,7 +761,8 @@ mod tests {
     async fn test_retry_apenas_erros_transitorios() {
         // 500 NÃO deve retry (max_tentativas=1 -> erro imediato)
         let servidor = servidor_false(
-            ResponseTemplate::new(500).set_body_json(serde_json::json!({"error": {"message": "x"}})),
+            ResponseTemplate::new(500)
+                .set_body_json(serde_json::json!({"error": {"message": "x"}})),
         )
         .await;
 
