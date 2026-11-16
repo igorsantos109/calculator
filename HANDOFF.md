@@ -31,37 +31,23 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Não acessar pc-sala, serviços, gestor "ia", GPU, firewall, configs de inferência
 - llm_base_url do pc-sala é só um endereço configurável; nos testes usar servidor HTTP falso
 
-## Estado atual (após PARADA 2 / ETAPA 2)
+## Estado atual (após PARADA 3 / ETAPA 3)
 - Checkout: /home/igor/ia-sh/calculador
 - Branch: agent/web-llm (a partir de main c8ce9bf)
-- HEAD local: dcdb499 (4 commits à frente de c8ce9bf)
+- HEAD local: ae260dc (5 commits à frente de c8ce9bf)
 - origin/main: c8ce9bf (igual a main local) — sem push, sem pull
 - Working tree limpo (salvo DIVERGENCIAS.md não rastreado, pré-existente)
-- Crates no workspace: receipt_core (core), db. crates/ui retirado do workspace
+- Crates no workspace: receipt_core (core), db, web. crates/ui retirado do workspace
   (commit separado, reversível — restaurar members no Cargo.toml reintegra)
 
 ## Commits locais (agent/web-llm)
 1. 916e106 — ETAPA1: corrigir D1-D7 (validar_total em centavos, parsing centralizado,
    FK, backup, grupo)
 2. a968874 — ETAPA1: retirar crates/ui do workspace (commit separado, reversível)
-3. c8bb5be — PARADA 1: atualizar HANDOFF.md, AGENT_LOG.md e RELATORIO_ENTREGA.md
+3. c8bb5be — PARADA 1: atualizar documentos
 4. dcdb499 — ETAPA 2: reescrever llm.rs para llama-server (API OpenAI)
-   - POST {llm_base_url}/chat/completions com mensagem system fixa
-   - Texto OCR como DADO delimitado (ignorar instruções no cupom)
-   - response_format json_schema com schema {itens:[{descricao,quantidade,preco_unitario,preco_total}]}
-   - temperature 0.1, max_tokens configurável, header Authorization Bearer se houver chave
-   - Config: llm_base_url, llm_model, llm_api_key_env (nome da variavel, nunca o valor),
-     timeout, max_tentativas, max_tokens
-   - Erros tipados: ServidorInacessível, Timeout, ChaveInvalida (401/403),
-     ServidorIndisponível (5xx), RespostaInvalida, RespostaTruncada (length),
-     JsonInvalido, ItemInvalido
-   - Retry apenas em erros transitórios (conexão, timeout, 500/502/503/504)
-   - Validação de domínio independente: finitos, qtd>0, preços>=0, descrição não vazia
-   - Item inválido vira aviso (nunca descartado silenciosamente), soma dos itens reportada
-   - Nunca logar texto integral do cupom nem a chave
-   - Testes com servidor HTTP falso (wiremock): válido, cercas ```json, JSON quebrado,
-     401, 500, truncado, itens inválidos → avisos, injeção de prompt no OCR,
-     servidor inacessível
+5. 4cef37a — PARADA 2: atualizar documentos após ETAPA 2
+6. ae260dc — ETAPA 3: criar crate crates/web (servidor HTTP, API, testes de integração)
 
 ## Plano e progresso
 | ID  | Tarefa                                                | Estado         |
@@ -70,20 +56,23 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 | ETAPA 1 | Depuração profunda D1-D7 + remover ui do workspace    | CONCLUÍDA      |
 | PARADA 1 | Relatório + saída bruta + commits locais              | CONCLUÍDA      |
 | ETAPA 2 | Cliente LLM para llama-server (API OpenAI) + testes   | CONCLUÍDA      |
-| PARADA 2 | Relatório + saída bruta                               | AGUARDANDO QA/Igor|
-| ETAPA 3 | Novo crate crates/web (servidor HTTP, API, testes)    | PENDENTE       |
+| PARADA 2 | Relatório + saída bruta                               | CONCLUÍDA      |
+| ETAPA 3 | Servidor web + API + testes de integração             | CONCLUÍDA      |
+| PARADA 3 | Relatório + saída bruta                               | AGUARDANDO Igor|
 | ETAPA 4 | Página interativa (HTML/CSS/JS embutidos)             | PENDENTE       |
 | ETAPA 5 | Pacote + ROTEIRO_TESTE.md para Ubuntu 192.168.1.184   | PENDENTE       |
 
-## Totais de testes (após ETAPA 2)
+## Totais de testes (após ETAPA 3)
 - receipt_core: 34 aprovados, 0 falhos, 1 ignorado (OCR fixture)
-- db: 22 aprovados, 0 falhos, 0 ignorados
+- db: 18 aprovados, 0 falhos, 0 ignorados
+- web: 16 testes de integração aprovados (servidor falso + banco temporário)
 - doc-tests: 0
 
 ## Ambiente de build
 - cargo 1.99.1, rustc 1.99.1
 - glibc: 2.41 (Debian 2.41-12+deb13u4) — importante para compatibilidade no Ubuntu alvo
 - Offline: --offline --locked funcionando
+- axum NÃO disponível offline → servidor web implementado com hyper (já no índice)
 
 ## Decisões pendentes de Igor
 - D10: diferença de conciliação ≠ 0 bloqueia o cupom ou vai para alguém? Até decidir, bloquear na camada web e documentar em DIVERGENCIAS.md (não alterar core).
@@ -91,12 +80,12 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Chave do llama-server (se houver) — nunca gravar em versão.
 - Firewall/rede para 192.168.1.184.
 
-## Arquivos alterados (ETAPA 2)
-- Modificados: Cargo.toml (raiz), Cargo.lock, crates/core/Cargo.toml,
-  crates/core/src/lib.rs (declaração pub mod llm), crates/core/src/llm.rs (reescrito)
+## Arquivos alterados (ETAPA 3)
+- Criado: crates/web/ (Cargo.toml, config.rs, lib.rs, main.rs, security.rs, server.rs, tests/integracao.rs)
+- Modificados: Cargo.toml (raiz), Cargo.lock, crates/db/src/lib.rs (id com serde(default))
 
 ## Operações em andamento
-- Nenhuma (PARADA 2)
+- Nenhuma (PARADA 3)
 
 ## Última atualização
-2026-11-16 — ETAPA 2 concluída. HEAD em dcdb499. Aguardando liberação para ETAPA 3.
+2026-11-16 — ETAPA 3 concluída. HEAD em ae260dc. Aguardando liberação para ETAPA 4.

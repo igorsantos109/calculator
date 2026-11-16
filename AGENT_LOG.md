@@ -63,11 +63,22 @@ truncado, itens inválidos→avisos, injeção de prompt no OCR, servidor inaces
 **Veredito:** PASS — 34 testes core (1 ignorado), 22 testes db; clippy -D warnings OK; fmt OK
 **SHA:** dcdb499
 
+### PARADA 2 | LEAD | Relatório de entrega + HANDOFF.md + AGENT_LOG.md
+**Saída:** documentos atualizados para entrega à espera de liberação de Igor.
+**Veredito:** PASS — liberado para ETAPA 3
+**SHA:** 4cef37a
+
+### ETAPA 3 | LEAD | Criar crate crates/web (servidor HTTP, API, testes de integração)
+**Saída:** crates/web/ criado com servidor HTTP (hyper), API JSON (7 rotas), segurança (PIN, CSRF, upload limit, sanitização), /api/saude com estado real.
+Testes de integração: 16 aprovados com servidor falso (wiremock) + banco temporário, cobrindo PIN errado, CSRF ausente, servidor LLM indisponível, JSON quebrado, resposta truncada, chave inválida, itens inválidos → avisos, XSS no OCR.
+**Veredito:** PASS — db 18, core 34+1 ignorado, web 16 integração; clippy -D warnings OK; fmt OK
+**SHA:** ae260dc
+
 ---
 
-## Totais reais por pacote (após ETAPA 2)
+## Totais reais por pacote (após ETAPA 3)
 - receipt_core: 34 aprovados, 0 falhos, 1 ignorado (OCR fixture)
-- db: 22 aprovados, 0 falhos, 0 ignorados
+- db: 18 aprovados, 0 falhos, 0 ignorados
 - doc-tests: 0
 
 ## Bloqueios e autorizações
@@ -79,4 +90,4 @@ truncado, itens inválidos→avisos, injeção de prompt no OCR, servidor inaces
 | Push/merge | Autorização explícita de Igor |
 
 ## Próxima ação
-AGUARDANDO liberação para PARADA 2 (QA/Igor), depois ETAPA 3: criar crate crates/web (servidor HTTP, segurança, API).
+AGUARDANDO liberação para PARADA 3 (Igor), depois ETAPA 4: página interativa (HTML/CSS/JS embutidos no binário).
