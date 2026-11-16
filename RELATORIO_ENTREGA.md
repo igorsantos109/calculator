@@ -8,9 +8,9 @@ Branch local: agent/web-llm.
 
 ## SHA inicial / final
 - SHA inicial (main): c8ce9bf
-- SHA final (agent/web-llm): a968874 (2 commits locais, não publicados)
+- SHA final (agent/web-llm): dcdb499 (4 commits locais, não publicados)
 
-## Estado por ID (tabela de entrega parcial — ETAPA 1)
+## Estado por ID (tabela de entrega — após ETAPA 2)
 
 | ID   | Estado        | Commit    | Prova                                                        |
 |------|---------------|-----------|--------------------------------------------------------------|
@@ -21,22 +21,24 @@ Branch local: agent/web-llm.
 | D5   | CONCLUÍDO     | 916e106   | parse_grupo erro; ORDER BY id; histórico id DESC (3 testes)  |
 | D6   | CONCLUÍDO     | 916e106   | SchemaVersionAusenteBancoLegado removido; ordem de módulos   |
 | D7   | CONCLUÍDO     | 916e106   | varredura: sem conversão silenciosa de quantidade            |
-| D8   | PARCIAL       | —         | CI --locked OK; doc-tests/integração pendentes (ETAPA 2-4)   |
+| D8   | PARCIAL       | —         | CI --locked OK; doc-tests/integração pendentes (ETAPA 3-4)   |
 | ui   | REMOVIDO      | a968874   | crates/ui retirado do workspace (reversível)                 |
-| ETAPA 2 | PENDENTE   | —         | reescrever llm.rs para llama-server (API OpenAI)             |
+| ETAPA 2 | CONCLUÍDO   | dcdb499   | llm.rs reescrito para llama-server; 12 testes com servidor falso |
 | ETAPA 3 | PENDENTE   | —         | crate crates/web (servidor HTTP)                             |
 | ETAPA 4 | PENDENTE   | —         | página interativa (HTML/CSS/JS)                              |
 | ETAPA 5 | PENDENTE   | —         | pacote + ROTEIRO_TESTE.md para Ubuntu 192.168.1.184          |
 
-## Testes por pacote (após ETAPA 1)
-- receipt_core: 33 aprovados, 0 falhos, 1 ignorado (OCR fixture)
+## Testes por pacote (após ETAPA 2)
+- receipt_core: 34 aprovados, 0 falhos, 1 ignorado (OCR fixture)
 - db: 22 aprovados, 0 falhos, 0 ignorados
 - doc-tests: 0
 
 ## Dependências (offline, --locked)
-- receipt_core: serde, serde_json, thiserror, image, imageproc, alvio-ocr, regex, tracing
+- receipt_core: serde, serde_json, thiserror, image, imageproc, alvio-ocr, tracing,
+  reqwest (0.12, json), tokio (1, full)
+- dev: wiremock (0.6)
 - db: receipt_core, rusqlite (bundled), thiserror, serde, serde_json
-- dev: wiremock, tempfile
+- dev: tempfile (3)
 - ui removido (eframe, egui, rfd, dirs, etc. retirados do lock)
 
 ## Decisões pendentes de Igor
@@ -47,12 +49,12 @@ Branch local: agent/web-llm.
 
 ## Limitações (NÃO VERIFICADO)
 - OCR real (alvio-ocr sem fixture, teste ignorado)
-- LLM real / servidor llama-server real (será substituído por servidor HTTP falso na ETAPA 2)
+- LLM real / servidor llama-server real (testes usam servidor HTTP falso)
 - Navegador real
 - Rede real / intranet
 - Banco real (~cupons.db nunca usado; testes usam banco temporário)
 
-## Como rodar (ETAPA 1)
+## Como rodar (após ETAPA 2)
 ```bash
 cd /home/igor/ia-sh/calculador
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -63,4 +65,4 @@ cargo build --workspace --release --offline --locked
 ```
 
 ## Próxima ação
-Aguardar liberação de Igor para iniciar ETAPA 2 (cliente LLM para llama-server).
+Aguardar liberação de Igor para PARADA 2, depois iniciar ETAPA 3 (crate crates/web).

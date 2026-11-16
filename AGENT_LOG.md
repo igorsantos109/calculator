@@ -51,13 +51,22 @@
 
 ### PARADA 1 | LEAD | Relatório de entrega + HANDOFF.md + AGENT_LOG.md
 **Saída:** documentos atualizados para entrega à espera de liberação de Igor.
-**Veredito:** PRONTO PARA PARADA
-**SHA:** a968874
+**Veredito:** PASS — liberado para ETAPA 2
+**SHA:** c8bb5be
+
+### ETAPA 2 | LEAD | Reescrever llm.rs para llama-server (API OpenAI)
+**Saída:** crates/core/src/llm.rs reescrito; POST /chat/completions, response_format json_schema,
+mensagem system fixa, texto OCR como dado delimitado, retry em transitórios, validação de domínio,
+avisos para itens inválidos, soma dos itens reportada, sem logar texto integral/chave.
+Testes com servidor HTTP falso (wiremock): válido, cercas ```json, JSON quebrado, 401, 500,
+truncado, itens inválidos→avisos, injeção de prompt no OCR, servidor inacessível.
+**Veredito:** PASS — 34 testes core (1 ignorado), 22 testes db; clippy -D warnings OK; fmt OK
+**SHA:** dcdb499
 
 ---
 
-## Totais reais por pacote (após ETAPA 1)
-- receipt_core: 33 aprovados, 0 falhos, 1 ignorado (OCR fixture)
+## Totais reais por pacote (após ETAPA 2)
+- receipt_core: 34 aprovados, 0 falhos, 1 ignorado (OCR fixture)
 - db: 22 aprovados, 0 falhos, 0 ignorados
 - doc-tests: 0
 
@@ -70,4 +79,4 @@
 | Push/merge | Autorização explícita de Igor |
 
 ## Próxima ação
-ETAPA 2: reescrever crates/core/src/llm.rs para llama-server (API OpenAI), com servidor HTTP falso nos testes.
+AGUARDANDO liberação para PARADA 2 (QA/Igor), depois ETAPA 3: criar crate crates/web (servidor HTTP, segurança, API).
