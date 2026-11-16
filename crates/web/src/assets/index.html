@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leitor de Cupons Fiscais</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="toolbar">
+  <div class="toolbar-left">
+    <h1>Leitor de Cupons</h1>
+    <span id="status-conexao" class="status-badge status-indisponivel">Verificando servidor...</span>
+  </div>
+  <div class="toolbar-right">
+    <button id="btn-tema" aria-label="Alternar tema claro/escuro">🌙</button>
+    <button id="btn-teste-llm" aria-label="Testar conexão com LLM">Testar LLM</button>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Sidebar: histórico -->
+  <aside class="sidebar">
+    <h2>Histórico</h2>
+    <div class="busca">
+      <input type="search" id="input-busca" placeholder="Buscar cupom...">
+    </div>
+    <div class="filtros">
+      <label><input type="checkbox" id="filtro-conciliado"> Conciliados</label>
+      <label><input type="checkbox" id="filtro-divergente"> Divergentes</label>
+    </div>
+    <ul id="lista-historico" class="lista-historico">
+      <li class="vazio">Nenhum cupom salvo.</li>
+    </ul>
+  </aside>
+
+  <!-- Main: fluxo principal -->
+  <main class="principal">
+    <section class="card entrada">
+      <h2>1. Enviar cupom</h2>
+      <div class="dropzone" id="dropzone">
+        <p id="dropzone-texto">Arraste uma foto do cupom ou clique para selecionar</p>
+        <input type="file" id="input-imagem" accept="image/png,image/jpeg,image/jpg" hidden>
+        <div class="botoes-entrada">
+          <button id="btn-colar-texto">Colar texto OCR</button>
+          <button id="btn-modo-manual">Modo manual</button>
+        </div>
+      </div>
+      <div id="area-texto-ocr" class="texto-ocr oculto">
+        <label for="input-texto-ocr">Texto OCR (edite se necessário):</label>
+        <textarea id="input-texto-ocr" rows="6"></textarea>
+        <div class="botoes-texto">
+          <button id="btn-extrair-texto">Extrair itens do texto</button>
+        </div>
+        <div id="erro-ocr" class="erro"></div>
+      </div>
+    </section>
+
+    <section class="card itens" id="secao-itens" class="oculto">
+      <h2>2. Itens extraídos</h2>
+      <div class="soma-avisos" id="area-avisos"></div>
+      <table id="tabela-itens">
+        <thead>
+          <tr>
+            <th>Descrição</th>
+            <th>Quantidade</th>
+            <th>Preço Unit.</th>
+            <th>Preço Total</th>
+            <th>Grupo</th>
+            <th>Ação</th>
+          </tr>
+        </thead>
+        <tbody id="corpo-tabela-itens"></tbody>
+      </table>
+      <div class="novo-item">
+        <input type="text" id="input-nova-descricao" placeholder="Descrição">
+        <input type="text" id="input-nova-quantidade" placeholder="Qtd (ex: 0,5)">
+        <input type="text" id="input-novo-unitario" placeholder="Unit (R$)">
+        <input type="text" id="input-novo-total" placeholder="Total (R$)">
+        <select id="input-novo-grupo">
+          <option value="">Grupo</option>
+          <option value="Casa">Casa</option>
+          <option value="Igor">Igor</option>
+          <option value="Renan">Renan</option>
+        </select>
+        <button id="btn-adicionar-item">Adicionar</button>
+      </div>
+    </section>
+
+    <section class="card resumo" id="secao-resumo" class="oculto">
+      <h2>3. Totais e saldos</h2>
+      <div class="grade-resumo">
+        <div class="resumo-item"><span class="label">Total dos itens:</span><span id="soma-itens" class="valor">R$ 0,00</span></div>
+        <div class="resumo-item"><span class="label">Total do cupom:</span><input type="text" id="input-total-cupom" value="0,00"></div>
+        <div class="resumo-item"><span class="label">Pagador:</span><select id="input-pagador"><option value="Igor">Igor</option><option value="Renan">Renan</option></select></div>
+        <div class="resumo-item"><span class="label">Data:</span><input type="text" id="input-data" placeholder="DD/MM/AAAA"></div>
+      </div>
+      <div id="selo-conciliacao" class="selo selo-indisponivel">Aguardando validação</div>
+      <div class="saldos">
+        <div class="saldo"><span class="label">Igor:</span><span id="saldo-igor" class="valor">R$ 0,00</span></div>
+        <div class="saldo"><span class="label">Renan:</span><span id="saldo-renan" class="valor">R$ 0,00</span></div>
+      </div>
+    </section>
+
+    <section class="card acoes" id="secao-acoes" class="oculto">
+      <h2>4. Salvar</h2>
+      <div id="mensagem-salvo" class="sucesso oculto">Cupom salvo com sucesso!</div>
+      <div id="mensagem-erro" class="erro oculto"></div>
+      <button id="btn-salvar" class="btn-primary">Salvar cupom</button>
+      <button id="btn-novo">Novo cupom</button>
+    </section>
+  </main>
+</div>
+
+<!-- Modal de detalhes -->
+<div class="modal" id="modal-detalhes" hidden>
+  <div class="modal-conteudo">
+    <header class="modal-header">
+      <h2>Detalhes do cupom</h2>
+      <button id="btn-fechar-modal" aria-label="Fechar">✕</button>
+    </header>
+    <div class="modal-corpo">
+      <div class="dados-cupom">
+        <p><strong>Estabelecimento:</strong> <span id="det-estabelecimento"></span></p>
+        <p><strong>Data:</strong> <span id="det-data"></span></p>
+        <p><strong>Total:</strong> <span id="det-total"></span></p>
+        <p><strong>Pagador:</strong> <span id="det-pagador"></span></p>
+      </div>
+      <div class="responsabilidades">
+        <h3>Responsabilidades</h3>
+        <p><strong>Igor:</strong> <span id="det-igor"></span></p>
+        <p><strong>Renan:</strong> <span id="det-renan"></span></p>
+      </div>
+      <div class="saldos-detalhe">
+        <h3>Saldos</h3>
+        <p><strong>Igor:</strong> <span id="det-saldo-igor"></span></p>
+        <p><strong>Renan:</strong> <span id="det-saldo-renan"></span></p>
+      </div>
+      <table class="tabela-itens-detalhe">
+        <thead><tr><th>Item</th><th>Qtd</th><th>Unit</th><th>Total</th><th>Grupo</th></tr></thead>
+        <tbody id="det-itens"></tbody>
+      </table>
+    </div>
+    <footer class="modal-footer">
+      <button id="btn-copiar-relatorio" class="btn-secondary">Copiar relatório</button>
+      <button id="btn-fechar-modal2" class="btn-primary">Fechar</button>
+    </footer>
+  </div>
+</div>
+
+<!-- Modal de relatório do período -->
+<div class="modal" id="modal-relatorio" hidden>
+  <div class="modal-conteudo">
+    <header class="modal-header">
+      <h2>Relatório do período</h2>
+      <button id="btn-fechar-relatorio" aria-label="Fechar">✕</button>
+    </header>
+    <div class="modal-corpo">
+      <label>De: <input type="text" id="rel-de" placeholder="DD/MM/AAAA"></label>
+      <label>Até: <input type="text" id="rel-ate" placeholder="DD/MM/AAAA"></label>
+      <button id="btn-gerar-relatorio">Gerar</button>
+      <div id="resultado-relatorio"></div>
+      <button id="btn-copiar-relatorio-periodo" class="btn-secondary">Copiar relatório</button>
+    </div>
+    <footer class="modal-footer">
+      <button id="btn-fechar-relatorio2" class="btn-primary">Fechar</button>
+    </footer>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

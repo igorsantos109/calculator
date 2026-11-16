@@ -9,6 +9,7 @@ use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::Serialize;
 use tokio::sync::Mutex;
 
+use crate::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
 use crate::config::Config;
 use crate::security::{cabecalhos_seguranca, constante_tempo_igual, validar_csrf};
 
@@ -138,6 +139,33 @@ pub async fn handle(
 
     // Dispatch: mover req nas rotas POST que consomem o corpo
     let resposta = match (metodo, caminho.as_str()) {
+        (Method::GET, "/") => {
+            let mut resposta = Response::new(Body::from(INDEX_HTML));
+            *resposta.status_mut() = StatusCode::OK;
+            resposta.headers_mut().insert("content-type", "text/html; charset=utf-8".parse().unwrap());
+            for (chave, valor) in cabecalhos_seguranca() {
+                resposta.headers_mut().insert(chave, valor.parse().unwrap());
+            }
+            resposta
+        }
+        (Method::GET, "/style.css") => {
+            let mut resposta = Response::new(Body::from(STYLE_CSS));
+            *resposta.status_mut() = StatusCode::OK;
+            resposta.headers_mut().insert("content-type", "text/css; charset=utf-8".parse().unwrap());
+            for (chave, valor) in cabecalhos_seguranca() {
+                resposta.headers_mut().insert(chave, valor.parse().unwrap());
+            }
+            resposta
+        }
+        (Method::GET, "/app.js") => {
+            let mut resposta = Response::new(Body::from(APP_JS));
+            *resposta.status_mut() = StatusCode::OK;
+            resposta.headers_mut().insert("content-type", "application/javascript; charset=utf-8".parse().unwrap());
+            for (chave, valor) in cabecalhos_seguranca() {
+                resposta.headers_mut().insert(chave, valor.parse().unwrap());
+            }
+            resposta
+        }
         (Method::GET, "/api/saude") => saude(&config, &db).await,
         (Method::GET, "/api/cupons") => listar_cupons(&db).await,
         (Method::GET, p) if p.starts_with("/api/cupons/") => buscar_cupom(&db, p).await,

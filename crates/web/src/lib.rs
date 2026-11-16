@@ -6,6 +6,7 @@
 //! limite de upload, sanitização de nomes de arquivo, cabeçalhos de
 //! segurança, sem CDN.
 
+pub mod assets;
 pub mod config;
 pub mod security;
 pub mod server;
