@@ -1,0 +1,73 @@
+# AGENT_LOG.md — Registro de Atividades do Fluxo Agêntico
+
+## Formato: tarefa | papel | comando | saída resumida | veredito | SHA
+
+---
+
+### ETAPA 0 | LEAD | git status, git log, git diff, git ls-remote origin main
+**Saída:** HEAD local c8ce9bf == origin/main c8ce9bf (reconciliado). Branch agent/web-llm criado a partir de c8ce9bf.
+**Veredito:** RECONCILIADO — sem divergência entre HEAD local e remoto.
+**SHA:** c8ce9bf
+
+### ETAPA 0 | LEAD | cargo fmt --all -- --check
+**Saída:** sem saída (sucesso)
+**Veredito:** PASS
+**SHA:** c8ce9bf
+
+### ETAPA 0 | LEAD | cargo clippy --workspace --all-targets --offline --locked -- -D warnings
+**Saída:** PASS após corrigir warnings de dependências não usadas (ollama-rest, chrono, regex) e imports (std::fs em ocr.rs, mut em teste db)
+**Veredito:** PASS
+**SHA:** a968874 (após ETAPA 1)
+
+### ETAPA 0 | LEAD | cargo test --workspace --offline --locked
+**Saída:** db: 22/22 passed | receipt_core: 33/33 passed, 1 ignored (OCR fixture) | ui: removido do workspace | doc-tests: 0
+**Veredito:** PASS
+**SHA:** a968874
+
+### ETAPA 0 | LEAD | cargo build --workspace --release --offline --locked
+**Saída:** Finished release profile em ~1m18s
+**Veredito:** PASS
+**SHA:** a968874
+
+### ETAPA 0 | LEAD | ldd --version
+**Saída:** glibc 2.41 (Debian 2.41-12+deb13u4)
+**Veredito:** REGISTRADO — para comparação com glibc do Ubuntu alvo (192.168.1.184)
+**SHA:** a968874
+
+### ETAPA 1 | LEAD | Repro D1: programa C/Rust simulando validar_total antigo (f64)
+**Saída:** 20.05 f64 = 20.05000000000000071 → diferencial 0.0500000000000007 > 0.05 → rejeita incorretamente. Nova (centavos): 2005 vs 2000 → aceita.
+**Veredito:** PROVA DO BUG (causa-raiz confirmada)
+**SHA:** —
+
+### ETAPA 1 | LEAD | Implementar D1-D7 (commit 916e106)
+**Saída:** 7 arquivos alterados, +737/-398 linhas. Criado crates/core/src/parse.rs.
+**Veredito:** CONCLUÍDO — testes D1-D5 passando, clippy -D warnings OK
+**SHA:** 916e106
+
+### ETAPA 1 | LEAD | Remover crates/ui do workspace (commit a968874, separado, reversível)
+**Saída:** Cargo.toml raiz members=[crates/core, crates/db]; Cargo.lock atualizado (removidas deps do ui).
+**Veredito:** CONCLUÍDO — workspace sem ui compila e testa offline
+**SHA:** a968874
+
+### PARADA 1 | LEAD | Relatório de entrega + HANDOFF.md + AGENT_LOG.md
+**Saída:** documentos atualizados para entrega à espera de liberação de Igor.
+**Veredito:** PRONTO PARA PARADA
+**SHA:** a968874
+
+---
+
+## Totais reais por pacote (após ETAPA 1)
+- receipt_core: 33 aprovados, 0 falhos, 1 ignorado (OCR fixture)
+- db: 22 aprovados, 0 falhos, 0 ignorados
+- doc-tests: 0
+
+## Bloqueios e autorizações
+| Bloqueio | Autorização necessária |
+|----------|------------------------|
+| D10: comportamento de divergência de conciliação | Decisão de Igor (documentado em DIVERGENCIAS.md) |
+| Versão do Ubuntu alvo (glibc) | Igor informar |
+| Chave do llama-server | Igor informar (nunca gravar em versão) |
+| Push/merge | Autorização explícita de Igor |
+
+## Próxima ação
+ETAPA 2: reescrever crates/core/src/llm.rs para llama-server (API OpenAI), com servidor HTTP falso nos testes.
