@@ -1,0 +1,52 @@
+# config.toml de exemplo — Leitor de Cupons Fiscais
+#
+# Copie este arquivo para /etc/leitor-cupons/config.toml ou
+# ~/.config/leitor-cupons/config.toml e ajuste os valores.
+# O PIN e a chave do LLM devem vir de variáveis de ambiente (nunca deste arquivo).
+
+[servidor]
+# Endereço de escuta. Padrão: 127.0.0.1:8080 (somente localhost).
+# Para acessar pela LAN (ex.: 192.168.1.184), altere para 0.0.0.0:8080
+# ou 192.168.1.184:8080 — veja aviso de segurança abaixo.
+listen_addr = "127.0.0.1:8080"
+
+# Caminho do banco de dados SQLite. Nunca usar ~/cupons.db por padrão em testes.
+db_path = "/var/lib/leitor-cupons/cupons.db"
+
+# Pasta para imagens de OCR (apenas referência; OCR real não verificado offline)
+ocr_dir = "/var/lib/leitor-cupons/ocr"
+
+# Limite de upload em MB (padrão: 10)
+upload_limit_mb = 10
+
+[llm]
+# URL base do llama-server (formato OpenAI: POST {llm_base_url}/chat/completions)
+# Exemplo (não verificado): http://192.168.1.150:8080/v1
+llm_base_url = "http://127.0.0.1:11434/v1"
+
+# Modelo/alias configurável no llama-server
+llm_model = "llama-3.1-8b"
+
+# NOME da variável de ambiente que contém a chave (nunca o valor).
+# Deixe vazio/comentado se não houver chave.
+llm_api_key_env = "LLM_API_KEY"
+
+# Timeout da requisição em segundos
+timeout = 120
+
+# Número máximo de tentativas (apenas erros transitórios)
+max_tentativas = 3
+
+# max_tokens da resposta
+max_tokens = 2048
+
+# ============================================================
+# AVISO DE SEGURANÇA (acesso pela LAN)
+# ============================================================
+# Se você definir listen_addr = "0.0.0.0:8080" ou um endereço LAN
+# (ex.: 192.168.1.184), o servidor ficará acessível a qualquer
+# dispositivo na rede local. Isso expõe o PIN e os dados dos cupons.
+# Somente faça isso em rede interna confiável e com firewall adequado.
+# O PIN é obrigatório em todas as rotas (exceto /api/saude) e é
+# comparado em tempo constante. Não expor a porta diretamente na
+# internet pública.

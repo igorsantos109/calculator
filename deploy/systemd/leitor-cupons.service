@@ -1,0 +1,38 @@
+# Unidade systemd de exemplo — Leitor de Cupons Fiscais
+#
+# Copie para ~/.config/systemd/user/leitor-cupons.service (usuário)
+# ou /etc/systemd/system/leitor-cupons.service (sistema).
+#
+# NÃO instale nem habilite automaticamente. Somente fornecido como
+# referência; Igor decide onde e como colocar.
+#
+# Depois de copiar, execute:
+#   systemctl --user daemon-reload   (ou sudo systemctl daemon-reload)
+#   systemctl --user enable --now leitor-cupons.service
+
+[Unit]
+Description=Leitor de Cupons Fiscais — servidor web local
+After=network.target
+
+[Service]
+Type=simple
+# Usuário que executa (usuário comum, não root)
+User=%i
+# Diretório de trabalho
+WorkingDirectory=/opt/leitor-cupons
+# Caminho do binário release
+ExecStart=/opt/leitor-cupons/target/release/leitor-cupons-web
+# Variáveis de ambiente (PIN e chave do LLM via env — nunca no código)
+Environment="CUPONS_PIN=%{CUPONS_PIN}"
+Environment="CUPONS_DB=/var/lib/leitor-cupons/cupons.db"
+Environment="OCR_DIR=/var/lib/leitor-cupons/ocr"
+Environment="LLM_BASE_URL=http://127.0.0.1:11434/v1"
+Environment="LLM_MODEL=llama-3.1-8b"
+Environment="LLM_API_KEY_ENV=LLM_API_KEY"
+Environment="UPLOAD_LIMIT_MB=10"
+# Reiniciar em caso de falha
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

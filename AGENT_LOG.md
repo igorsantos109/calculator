@@ -74,9 +74,34 @@ Testes de integração: 16 aprovados com servidor falso (wiremock) + banco tempo
 **Veredito:** PASS — db 18, core 34+1 ignorado, web 16 integração; clippy -D warnings OK; fmt OK
 **SHA:** ae260dc
 
+### PARADA 3 | LEAD | Relatório de entrega + HANDOFF.md + AGENT_LOG.md
+**Saída:** documentos atualizados para entrega à espera de liberação de Igor.
+**Veredito:** PASS — liberado para ETAPA 4
+**SHA:** 8b1ecc0
+
+### ETAPA 4 | LEAD | Página interativa (HTML/CSS/JS embutidos no binário)
+**Saída:** crates/web/src/assets/ com index.html, style.css, app.js (sem CDN, funcional sem internet). Assets embutidos via include_str! e servidos nas rotas GET /, /style.css, /app.js.
+Tema claro/escuro, responsivo, navegação por teclado. Fluxo: enviar/arrastar foto → texto OCR → itens editáveis → grupo → totais e saldos → selo de conciliação → salvar. Modo manual e colar texto. Histórico, detalhes, relatório do período.
+**Veredito:** PASS — db 18, core 34+1 ignorado, web 16 integração; JS sintaxe verificada com Node; clippy -D warnings OK; fmt OK
+**SHA:** a803185
+
+### PARADA 4 | LEAD | Relatório de entrega + HANDOFF.md + AGENT_LOG.md
+**Saída:** documentos atualizados para entrega à espera de liberação de Igor.
+**Veredito:** PASS — liberado para ETAPA 5
+**SHA:** a803185
+
+### ETAPA 5 | LEAD | Pacote + ROTEIRO_TESTE.md para Ubuntu 192.168.1.184
+**Saída:** Criado deploy/config/config.toml (exemplo com aviso de segurança LAN),
+deploy/systemd/leitor-cupons.service (usuário, não instalado),
+deploy/scripts/verificar_ubuntu.sh (somente leitura),
+ROTEIRO_TESTE.md (passos, resultado esperado, coleta de logs, backup/restaura).
+Build release --locked OK.
+**Veredito:** EM ANDAMENTO — aguardando RELATORIO_ENTREGA.md final
+**SHA:** a803185
+
 ---
 
-## Totais reais por pacote (após ETAPA 3)
+## Totais reais por pacote (após ETAPA 5)
 - receipt_core: 34 aprovados, 0 falhos, 1 ignorado (OCR fixture)
 - db: 18 aprovados, 0 falhos, 0 ignorados
 - doc-tests: 0
@@ -90,4 +115,4 @@ Testes de integração: 16 aprovados com servidor falso (wiremock) + banco tempo
 | Push/merge | Autorização explícita de Igor |
 
 ## Próxima ação
-AGUARDANDO liberação para PARADA 3 (Igor), depois ETAPA 4: página interativa (HTML/CSS/JS embutidos no binário).
+Finalizar RELATORIO_ENTREGA.md e entregar (não publicar sem autorização de Igor).

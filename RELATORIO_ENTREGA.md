@@ -8,9 +8,9 @@ Branch local: agent/web-llm.
 
 ## SHA inicial / final
 - SHA inicial (main): c8ce9bf
-- SHA final (agent/web-llm): ae260dc (6 commits locais, não publicados)
+- SHA final (agent/web-llm): a803185 (8 commits locais, não publicados)
 
-## Estado por ID (tabela de entrega — após ETAPA 3)
+## Estado por ID (tabela de entrega final)
 
 | ID   | Estado        | Commit    | Prova                                                        |
 |------|---------------|-----------|--------------------------------------------------------------|
@@ -21,14 +21,14 @@ Branch local: agent/web-llm.
 | D5   | CONCLUÍDO     | 916e106   | parse_grupo erro; ORDER BY id; histórico id DESC (3 testes)  |
 | D6   | CONCLUÍDO     | 916e106   | SchemaVersionAusenteBancoLegado removido; ordem de módulos   |
 | D7   | CONCLUÍDO     | 916e106   | varredura: sem conversão silenciosa de quantidade            |
-| D8   | PARCIAL       | —         | CI --locked OK; doc-tests/integração pendentes (ETAPA 4)     |
+| D8   | PARCIAL       | —         | CI --locked OK; doc-tests/integração pendentes               |
 | ui   | REMOVIDO      | a968874   | crates/ui retirado do workspace (reversível)                 |
 | ETAPA 2 | CONCLUÍDO   | dcdb499   | llm.rs reescrito para llama-server; 12 testes com servidor falso |
 | ETAPA 3 | CONCLUÍDO   | ae260dc   | crate crates/web (servidor HTTP); 16 testes de integração    |
-| ETAPA 4 | PENDENTE   | —         | página interativa (HTML/CSS/JS)                              |
-| ETAPA 5 | PENDENTE   | —         | pacote + ROTEIRO_TESTE.md para Ubuntu 192.168.1.184          |
+| ETAPA 4 | CONCLUÍDO   | a803185   | página interativa (HTML/CSS/JS embutidos)                    |
+| ETAPA 5 | CONCLUÍDO   | —         | deploy/config, deploy/systemd, deploy/scripts, ROTEIRO_TESTE.md |
 
-## Testes por pacote (após ETAPA 3)
+## Testes por pacote (estado final)
 - receipt_core: 34 aprovados, 0 falhos, 1 ignorado (OCR fixture)
 - db: 18 aprovados, 0 falhos, 0 ignorados
 - web: 16 testes de integração aprovados
@@ -54,11 +54,11 @@ Branch local: agent/web-llm.
 ## Limitações (NÃO VERIFICADO)
 - OCR real (alvio-ocr sem fixture, teste ignorado)
 - LLM real / servidor llama-server real (testes usam servidor HTTP falso)
-- Navegador real
-- Rede real / intranet
+- Navegador real (interface não renderizada em navegador real)
+- Rede real / intranet (testes em localhost)
 - Banco real (~cupons.db nunca usado; testes usam banco temporário)
 
-## Como rodar (após ETAPA 3)
+## Como rodar (estado final)
 ```bash
 cd /home/igor/ia-sh/calculador
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -68,5 +68,11 @@ cargo test --workspace --offline --locked
 cargo build --workspace --release --offline --locked
 ```
 
+## Artefatos de entrega (ETAPA 5)
+- deploy/config/config.toml — exemplo de configuração (db, escuta, PIN via env, llm_base_url, llm_model, pasta OCR)
+- deploy/systemd/leitor-cupons.service — unidade systemd de exemplo (usuário, não instalada)
+- deploy/scripts/verificar_ubuntu.sh — verificação somente leitura (glibc, porta, OCR, /health, /api/saude, banco)
+- ROTEIRO_TESTE.md — passos, resultado esperado, coleta de logs sem expor cupom, backup/restaura
+
 ## Próxima ação
-Aguardar liberação de Igor para PARADA 3, depois iniciar ETAPA 4 (página interativa HTML/CSS/JS embutidos).
+Aguardar liberação de Igor para publicar (não fazer push sem autorização).

@@ -31,23 +31,24 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Não acessar pc-sala, serviços, gestor "ia", GPU, firewall, configs de inferência
 - llm_base_url do pc-sala é só um endereço configurável; nos testes usar servidor HTTP falso
 
-## Estado atual (após PARADA 3 / ETAPA 3)
+## Estado atual (após PARADA 4 / ETAPA 4)
 - Checkout: /home/igor/ia-sh/calculador
 - Branch: agent/web-llm (a partir de main c8ce9bf)
-- HEAD local: ae260dc (5 commits à frente de c8ce9bf)
+- HEAD local: a803185 (8 commits à frente de c8ce9bf)
 - origin/main: c8ce9bf (igual a main local) — sem push, sem pull
 - Working tree limpo (salvo DIVERGENCIAS.md não rastreado, pré-existente)
 - Crates no workspace: receipt_core (core), db, web. crates/ui retirado do workspace
   (commit separado, reversível — restaurar members no Cargo.toml reintegra)
 
 ## Commits locais (agent/web-llm)
-1. 916e106 — ETAPA1: corrigir D1-D7 (validar_total em centavos, parsing centralizado,
-   FK, backup, grupo)
+1. 916e106 — ETAPA1: corrigir D1-D7 (validar_total em centavos, parsing centralizado, FK, backup, grupo)
 2. a968874 — ETAPA1: retirar crates/ui do workspace (commit separado, reversível)
 3. c8bb5be — PARADA 1: atualizar documentos
 4. dcdb499 — ETAPA 2: reescrever llm.rs para llama-server (API OpenAI)
 5. 4cef37a — PARADA 2: atualizar documentos após ETAPA 2
 6. ae260dc — ETAPA 3: criar crate crates/web (servidor HTTP, API, testes de integração)
+7. 8b1ecc0 — PARADA 3: atualizar documentos após ETAPA 3
+8. a803185 — ETAPA 4: página interativa (HTML/CSS/JS embutidos no binário)
 
 ## Plano e progresso
 | ID  | Tarefa                                                | Estado         |
@@ -58,15 +59,17 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 | ETAPA 2 | Cliente LLM para llama-server (API OpenAI) + testes   | CONCLUÍDA      |
 | PARADA 2 | Relatório + saída bruta                               | CONCLUÍDA      |
 | ETAPA 3 | Servidor web + API + testes de integração             | CONCLUÍDA      |
-| PARADA 3 | Relatório + saída bruta                               | AGUARDANDO Igor|
-| ETAPA 4 | Página interativa (HTML/CSS/JS embutidos)             | PENDENTE       |
-| ETAPA 5 | Pacote + ROTEIRO_TESTE.md para Ubuntu 192.168.1.184   | PENDENTE       |
+| PARADA 3 | Relatório + saída bruta                               | CONCLUÍDA      |
+| ETAPA 4 | Página interativa (HTML/CSS/JS embutidos)             | CONCLUÍDA      |
+| PARADA 4 | Relatório + saída bruta                               | CONCLUÍDA      |
+| ETAPA 5 | Pacote + ROTEIRO_TESTE.md para Ubuntu 192.168.1.184   | EM ANDAMENTO   |
 
-## Totais de testes (após ETAPA 3)
+## Totais de testes (após ETAPA 4)
 - receipt_core: 34 aprovados, 0 falhos, 1 ignorado (OCR fixture)
 - db: 18 aprovados, 0 falhos, 0 ignorados
 - web: 16 testes de integração aprovados (servidor falso + banco temporário)
 - doc-tests: 0
+- JS: sintaxe verificada com Node (--check OK)
 
 ## Ambiente de build
 - cargo 1.99.1, rustc 1.99.1
@@ -80,12 +83,14 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Chave do llama-server (se houver) — nunca gravar em versão.
 - Firewall/rede para 192.168.1.184.
 
-## Arquivos alterados (ETAPA 3)
-- Criado: crates/web/ (Cargo.toml, config.rs, lib.rs, main.rs, security.rs, server.rs, tests/integracao.rs)
-- Modificados: Cargo.toml (raiz), Cargo.lock, crates/db/src/lib.rs (id com serde(default))
+## Arquivos alterados
+- Criado: crates/web/src/assets.rs, crates/web/src/assets/{index.html,style.css,app.js}
+- Modificados: crates/web/src/lib.rs, crates/web/src/server.rs
+- Criado (ETAPA 5): deploy/config/config.toml, deploy/systemd/leitor-cupons.service,
+  deploy/scripts/verificar_ubuntu.sh, ROTEIRO_TESTE.md
 
 ## Operações em andamento
-- Nenhuma (PARADA 3)
+- ETAPA 5: pacote + ROTEIRO_TESTE.md + RELATORIO_ENTREGA.md final
 
 ## Última atualização
-2026-11-16 — ETAPA 3 concluída. HEAD em ae260dc. Aguardando liberação para ETAPA 4.
+2026-11-16 — ETAPA 4 concluída. HEAD em a803185. ETAPA 5 em andamento.
