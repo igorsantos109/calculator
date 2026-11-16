@@ -142,7 +142,9 @@ pub async fn handle(
         (Method::GET, "/") => {
             let mut resposta = Response::new(Body::from(INDEX_HTML));
             *resposta.status_mut() = StatusCode::OK;
-            resposta.headers_mut().insert("content-type", "text/html; charset=utf-8".parse().unwrap());
+            resposta
+                .headers_mut()
+                .insert("content-type", "text/html; charset=utf-8".parse().unwrap());
             for (chave, valor) in cabecalhos_seguranca() {
                 resposta.headers_mut().insert(chave, valor.parse().unwrap());
             }
@@ -151,7 +153,9 @@ pub async fn handle(
         (Method::GET, "/style.css") => {
             let mut resposta = Response::new(Body::from(STYLE_CSS));
             *resposta.status_mut() = StatusCode::OK;
-            resposta.headers_mut().insert("content-type", "text/css; charset=utf-8".parse().unwrap());
+            resposta
+                .headers_mut()
+                .insert("content-type", "text/css; charset=utf-8".parse().unwrap());
             for (chave, valor) in cabecalhos_seguranca() {
                 resposta.headers_mut().insert(chave, valor.parse().unwrap());
             }
@@ -160,7 +164,10 @@ pub async fn handle(
         (Method::GET, "/app.js") => {
             let mut resposta = Response::new(Body::from(APP_JS));
             *resposta.status_mut() = StatusCode::OK;
-            resposta.headers_mut().insert("content-type", "application/javascript; charset=utf-8".parse().unwrap());
+            resposta.headers_mut().insert(
+                "content-type",
+                "application/javascript; charset=utf-8".parse().unwrap(),
+            );
             for (chave, valor) in cabecalhos_seguranca() {
                 resposta.headers_mut().insert(chave, valor.parse().unwrap());
             }
