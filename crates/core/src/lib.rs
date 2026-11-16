@@ -194,17 +194,31 @@ pub fn calcular_totais(itens: &[ItemClassificado]) -> Totais {
 
 /// Valida se a soma dos preços totais dos itens está dentro da tolerância do total do cupom.
 ///
-/// Tolerância: `|Σ(preco_total dos itens) − total_cupom| ≤ 0.05`
+/// A comparação é feita em centavos inteiros (D1): cada valor é convertido com
+/// `round(x * 100)` e a tolerância é `|diff| ≤ 5` centavos, evitando erros de
+/// ponto flutuante (ex.: 20,05 vs 20,00 rejeitado incorretamente em f64).
 pub fn validar_total(itens: &[Item], total_cupom: f64) -> Result<(), CoreError> {
-    let soma: f64 = itens.iter().map(|item| item.preco_total).sum();
-    let diferencial = (soma - total_cupom).abs();
+    let soma_centavos: i64 = itens
+        .iter()
+        .map(|item| (item.preco_total * 100.0).round() as i64)
+        .sum();
+    let total_cupom_centavos: i64 = (total_cupom * 100.0).round() as i64;
+    let diferencial_centavos = (soma_centavos - total_cupom_centavos).abs();
 
-    if diferencial <= 0.05 {
+    if diferencial_centavos <= 5 {
         Ok(())
     } else {
-        Err(CoreError::ValidacaoTotal(ValidacaoTotalError(diferencial)))
+        Err(CoreError::ValidacaoTotal(ValidacaoTotalError(
+            diferencial_centavos as f64 / 100.0,
+        )))
     }
 }
+
+/// Módulo de parsing e validação de entradas (valores, quantidades, datas).
+pub mod parse;
+
+/// Módulo OCR para extração de texto de imagens de cupons fiscais.
+pub mod ocr;
 
 #[cfg(test)]
 mod tests {
@@ -292,6 +306,55 @@ mod tests {
         // Soma = 20.0, total_cupom = 20.1 → diferencial = 0.1 > 0.05
         let resultado = validar_total(&itens, 20.1);
         assert!(resultado.is_err());
+    }
+
+    /// D1: 20,05 vs 20,00 deve passar (5 centavos ≤ tolerância). Em f64 puro,
+    /// 20.05 é 20.05000000000000071 → diferencial 0.0500000000000007 > 0.05 → rejeitaria.
+    #[test]
+    fn test_validar_total_centavos_20_05_vs_20_00() {
+        let itens = vec![Item {
+            descricao: "Produto A".to_string(),
+            quantidade: 1.0,
+            preco_unitario: 20.05,
+            preco_total: 20.05,
+        }];
+        let resultado = validar_total(&itens, 20.00);
+        assert!(
+            resultado.is_ok(),
+            "20.05 vs 20.00 deve passar (diferença 5 centavos)"
+        );
+    }
+
+    /// D1: 100,05 vs 100,00 deve passar (5 centavos).
+    #[test]
+    fn test_validar_total_centavos_100_05_vs_100_00() {
+        let itens = vec![Item {
+            descricao: "Produto A".to_string(),
+            quantidade: 1.0,
+            preco_unitario: 100.05,
+            preco_total: 100.05,
+        }];
+        let resultado = validar_total(&itens, 100.00);
+        assert!(
+            resultado.is_ok(),
+            "100.05 vs 100.00 deve passar (diferença 5 centavos)"
+        );
+    }
+
+    /// D1: 0,06 vs 0,00 deve rejeitar (6 centavos > 5).
+    #[test]
+    fn test_validar_total_centavos_0_06_rejeitado() {
+        let itens = vec![Item {
+            descricao: "Produto A".to_string(),
+            quantidade: 1.0,
+            preco_unitario: 0.06,
+            preco_total: 0.06,
+        }];
+        let resultado = validar_total(&itens, 0.00);
+        assert!(
+            resultado.is_err(),
+            "0.06 vs 0.00 deve falhar (diferença 6 centavos > 5)"
+        );
     }
 
     #[test]
@@ -387,6 +450,3 @@ mod tests {
         assert!((resp.saldo_renan + 10.0).abs() < 0.001); // Renan pagou 0, deve 10 -> -10
     }
 }
-
-/// Módulo OCR para extração de texto de imagens de cupons fiscais.
-pub mod ocr;

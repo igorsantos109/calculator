@@ -10,6 +10,7 @@ thiserror.workspace = true
 image = "0.25"
 imageproc = "0.24"
 alvio-ocr = "0.3"        # PP-OCRv6 ONNX Runtime
-ollama-rest = "0.3"      # ou reqwest direto, se preferir
-regex = "1"
 tracing = "0.1"
+
+[dev-dependencies]
+wiremock = "0.6"

@@ -132,7 +132,6 @@ pub fn extrair_texto_simples(caminho: &Path) -> Result<String, OcrError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
 
     #[test]
     fn test_caminho_invalido() {

@@ -65,8 +65,8 @@ pub enum DbError {
     #[error("Tabela schema_version existe mas não possui a coluna 'version'")]
     SchemaVersionInvalida,
 
-    #[error("Tabela schema_version ausente em banco legado (esperado)")]
-    SchemaVersionAusenteBancoLegado,
+    #[error("Falha ao criar backup do banco antes da migração: {0}")]
+    BackupFalhou(String),
 }
 
 /// Versão atual do schema do banco de dados.
@@ -90,9 +90,7 @@ const MIGRACOES: &[Migracao] = &[
     Migracao {
         versao: 1,
         descricao: "Schema inicial: receipts e items",
-        up: "PRAGMA foreign_keys = ON;
-
-CREATE TABLE IF NOT EXISTS receipts (
+        up: "CREATE TABLE IF NOT EXISTS receipts (
     id INTEGER PRIMARY KEY,
     data_compra TEXT,
     estabelecimento TEXT,
@@ -146,17 +144,87 @@ INSERT OR IGNORE INTO schema_version (version, description) VALUES (3, 'Adiciona
 
 /// Repositório para operações de banco de dados SQLite.
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct Repositorio {
     /// Conexão com o banco de dados
     pub conn: Connection,
 }
 
+/// Ativa `PRAGMA foreign_keys = ON` na conexão (D3).
+///
+/// Deve ser chamado FORA de qualquer transação e ANTES de migrar, pois o
+/// PRAGMA não tem efeito dentro de uma transação no SQLite.
+pub fn enable_foreign_keys(conn: &mut Connection) -> SqliteResult<(), DbError> {
+    conn.execute("PRAGMA foreign_keys = ON;", [])
+        .map_err(DbError::from)?;
+    Ok(())
+}
+
+/// Cria uma cópia de backup do arquivo do banco com timestamp no nome,
+/// ao lado do arquivo original (ex.: `cupons.db.20260116T141500.bak`).
+///
+/// Usado antes de migrar um banco existente (D4).
+pub fn backup_antes_de_migrar(path: &Path) -> Result<std::path::PathBuf, DbError> {
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let agora = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| DbError::BackupFalhou(e.to_string()))?;
+    let secs = agora.as_secs();
+    let (ano, mes, dia, hora, min, seg) = epoch_para_utc(secs);
+    let nome = format!(
+        "{}.{:04}{:02}{:02}T{:02}{:02}{:02}.bak",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("banco.db"),
+        ano,
+        mes,
+        dia,
+        hora,
+        min,
+        seg
+    );
+    let destino = path.with_file_name(nome);
+    fs::copy(path, &destino).map_err(|e| {
+        DbError::BackupFalhou(format!(
+            "Falha ao copiar '{}' para '{}': {}",
+            path.display(),
+            destino.display(),
+            e
+        ))
+    })?;
+    Ok(destino)
+}
+
+/// Converte segundos desde UNIX_EPOCH para (ano, mês, dia, hora, min, seg) em UTC.
+fn epoch_para_utc(secs: u64) -> (i64, u32, u32, u32, u32, u32) {
+    let dias = (secs / 86400) as i64;
+    let resto = secs % 86400;
+    let hora = (resto / 3600) as u32;
+    let min = ((resto % 3600) / 60) as u32;
+    let seg = (resto % 60) as u32;
+    // Algoritmo de Howard Hinnant: dias desde 1970-01-01 → data gregoriana
+    let z = dias + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let ano = if m <= 2 { y + 1 } else { y };
+    (ano, m, d, hora, min, seg)
+}
+
 impl Repositorio {
     /// Cria o esquema do banco de dados se não existir.
     ///
-    /// Esta função deve ser chamada antes de qualquer operação de leitura/escrita.
-    /// Ativa foreign keys e cria as tabelas `receipts`, `items` e `schema_version`.
+    /// Ativa foreign keys FORA de transação (D3) e aplica as migrações.
     pub fn criar_esquema(conn: &mut Connection) -> SqliteResult<(), DbError> {
+        // D3: foreign_keys ON antes de migrar, fora de transação
+        enable_foreign_keys(conn)?;
         // Aplicar migrações na ordem
         for migracao in MIGRACOES {
             Self::aplicar_migracao(conn, migracao)?;
@@ -395,7 +463,7 @@ impl Repositorio {
     /// Vetor de `CupomResumo` com os cupons encontrados.
     pub fn listar_cupons(conn: &Connection) -> SqliteResult<Vec<CupomResumo>, DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, data_compra, estabelecimento, total_cupom, pagador FROM receipts ORDER BY criado_em DESC",
+            "SELECT id, data_compra, estabelecimento, total_cupom, pagador FROM receipts ORDER BY id DESC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -464,11 +532,12 @@ impl Repositorio {
         receipt_id: i64,
     ) -> SqliteResult<Vec<ItemClassificado>, DbError> {
         let mut stmt = conn.prepare(
-            "SELECT descricao, quantidade, preco_unitario, preco_total, grupo FROM items WHERE receipt_id = ?1",
+            "SELECT descricao, quantidade, preco_unitario, preco_total, grupo FROM items WHERE receipt_id = ?1 ORDER BY id",
         )?;
 
         let rows = stmt.query_map([receipt_id], |row| {
             let grupo_str: String = row.get(4)?;
+            let grupo = parse_grupo(&grupo_str)?;
             Ok(ItemClassificado {
                 item: Item {
                     descricao: row.get(0)?,
@@ -476,7 +545,7 @@ impl Repositorio {
                     preco_unitario: row.get(2)?,
                     preco_total: row.get(3)?,
                 },
-                grupo: parse_grupo(&grupo_str),
+                grupo,
             })
         })?;
 
@@ -489,13 +558,18 @@ impl Repositorio {
     }
 }
 
-/// Converte uma string para o enum `Grupo`.
-fn parse_grupo(grupo_str: &str) -> Grupo {
+/// Converte uma string para o enum `Grupo` (D5).
+///
+/// Retorna erro para valor desconhecido — sem fallback silencioso para Casa.
+fn parse_grupo(grupo_str: &str) -> Result<Grupo, rusqlite::Error> {
     match grupo_str.to_lowercase().as_str() {
-        "casa" => Grupo::Casa,
-        "igor" => Grupo::Igor,
-        "renan" => Grupo::Renan,
-        _ => Grupo::Casa, // Default fallback
+        "casa" => Ok(Grupo::Casa),
+        "igor" => Ok(Grupo::Igor),
+        "renan" => Ok(Grupo::Renan),
+        _ => Err(rusqlite::Error::InvalidParameterName(format!(
+            "Grupo inválido: '{}'. Use 'casa', 'igor' ou 'renan'",
+            grupo_str
+        ))),
     }
 }
 
@@ -511,7 +585,15 @@ impl Repositorio {
     /// # Returns
     /// `Result<Self, DbError>` - Nova instância do repositório ou erro de conexão.
     pub fn new(path: &Path) -> Result<Self, DbError> {
+        // D4: se o arquivo já existe, criar backup com timestamp antes de migrar
+        if path.exists() {
+            backup_antes_de_migrar(path)?;
+        }
+
         let mut conn = Connection::open(path).map_err(DbError::from)?;
+
+        // D3: foreign keys ON em toda conexão, fora de transação, antes de migrar
+        enable_foreign_keys(&mut conn)?;
 
         // Apply migrations automatically
         Self::migrar(&mut conn)?;
@@ -1443,5 +1525,129 @@ CREATE INDEX idx_items_receipt ON items(receipt_id);",
             Err(e) => panic!("Esperado SchemaVersionInvalida, recebido: {:?}", e),
             Ok(_) => panic!("Esperado erro, mas migrar() retornou Ok"),
         }
+    }
+
+    /// D4: backup do arquivo antes de migrar banco existente é criado com timestamp.
+    #[test]
+    fn test_backup_antes_de_migrar_arquivo_existente() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let caminho = dir.path().join("teste_backup.db");
+
+        // Criar um banco "existente" com conteúdo
+        {
+            let conn = Connection::open(&caminho).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE dummy (id INTEGER PRIMARY KEY, nome TEXT);
+                 INSERT INTO dummy (nome) VALUES ('original');",
+            )
+            .unwrap();
+        }
+        let tamanho_original = fs::metadata(&caminho).unwrap().len();
+        assert!(tamanho_original > 0);
+
+        // Abrir via Repositorio::new deve criar backup ao lado
+        let _repo = Repositorio::new(&caminho).unwrap();
+
+        // Deve existir exatamente um arquivo .bak ao lado
+        let baks: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".bak"))
+            .collect();
+        assert_eq!(baks.len(), 1, "Exatamente um backup .bak deve ser criado");
+        let bak_path = baks[0].path();
+        let nome = bak_path.file_name().unwrap().to_string_lossy().to_string();
+        assert!(
+            nome.starts_with("teste_backup.db.") && nome.contains('T'),
+            "Nome do backup deve conter timestamp: {}",
+            nome
+        );
+        // Conteúdo do backup deve ser idêntico ao original (antes da migração)
+        let tamanho_bak = fs::metadata(&bak_path).unwrap().len();
+        assert!(tamanho_bak > 0, "Backup não pode ser vazio");
+    }
+
+    /// D4: banco inexistente (novo) NÃO gera backup.
+    #[test]
+    fn test_sem_backup_para_banco_novo() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let caminho = dir.path().join("novo.db");
+        assert!(!caminho.exists());
+
+        let _repo = Repositorio::new(&caminho).unwrap();
+        assert!(caminho.exists(), "Banco novo deve ser criado");
+
+        let baks: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".bak"))
+            .collect();
+        assert_eq!(baks.len(), 0, "Banco novo não deve gerar backup");
+    }
+
+    /// D5: parse_grupo retorna erro para valor desconhecido (sem fallback para Casa).
+    #[test]
+    fn test_parse_grupo_valor_desconhecido_erro() {
+        let resultado = parse_grupo("desconhecido");
+        assert!(
+            resultado.is_err(),
+            "Grupo desconhecido deve ser erro, não fallback"
+        );
+        let resultado2 = parse_grupo("CASA"); // case-insensitive ainda funciona
+        assert!(resultado2.is_ok());
+        assert_eq!(resultado2.unwrap(), Grupo::Casa);
+    }
+
+    /// D5: buscar_itens_por_receipt_id retorna itens ordenados por id.
+    #[test]
+    fn test_buscar_itens_ordenados_por_id() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        Repositorio::criar_esquema(&mut conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO receipts (data_compra, estabelecimento, total_cupom, imagem_path, pagador)
+             VALUES ('2026-01-01', 'Teste', 30.0, '', 'igor')",
+            [],
+        )
+        .unwrap();
+        let rid = conn.last_insert_rowid();
+        // Inserir fora de ordem alfabética para garantir que ordena por id
+        for (desc, preco) in [("Zebra", 10.0), ("Alfa", 10.0), ("Meio", 10.0)] {
+            conn.execute(
+                "INSERT INTO items (receipt_id, descricao, quantidade, preco_unitario, preco_total, grupo)
+                 VALUES (?1, ?2, 1.0, ?3, ?3, 'casa')",
+                params![rid, desc, preco],
+            )
+            .unwrap();
+        }
+        let itens = Repositorio::buscar_itens_por_receipt_id(&conn, rid).unwrap();
+        assert_eq!(itens.len(), 3);
+        assert_eq!(itens[0].item.descricao, "Zebra"); // id 1 primeiro
+        assert_eq!(itens[1].item.descricao, "Alfa");
+        assert_eq!(itens[2].item.descricao, "Meio");
+    }
+
+    /// D5: listar_cupons retorna histórico ordenado por id decrescente (mais recente primeiro).
+    #[test]
+    fn test_listar_cupons_ordenado_id_desc() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        Repositorio::criar_esquema(&mut conn).unwrap();
+        for i in 0..3 {
+            conn.execute(
+                "INSERT INTO receipts (data_compra, estabelecimento, total_cupom, imagem_path, pagador)
+                 VALUES (?1, ?2, 10.0, '', 'igor')",
+                params![format!("2026-01-0{}", i + 1), format!("Loja {}", i)],
+            )
+            .unwrap();
+        }
+        let cupons = Repositorio::listar_cupons(&conn).unwrap();
+        assert_eq!(cupons.len(), 3);
+        assert!(
+            cupons[0].id > cupons[1].id,
+            "Primeiro deve ser o id maior (mais recente)"
+        );
+        assert!(cupons[1].id > cupons[2].id);
     }
 }
