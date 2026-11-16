@@ -220,6 +220,9 @@ pub mod parse;
 /// Módulo OCR para extração de texto de imagens de cupons fiscais.
 pub mod ocr;
 
+/// Módulo LLM para extração de itens via llama-server (API OpenAI).
+pub mod llm;
+
 #[cfg(test)]
 mod tests {
     use super::*;
