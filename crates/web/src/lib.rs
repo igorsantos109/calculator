@@ -11,5 +11,5 @@ pub mod config;
 pub mod security;
 pub mod server;
 
-pub use config::{config_from_env, Config};
+pub use config::{config_from_env, config_from_env_validado, Config};
 pub use server::{handle, run, ServerState};

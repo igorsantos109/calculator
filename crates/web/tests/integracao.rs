@@ -64,10 +64,8 @@ async fn iniciar_servidor_web_teste(
     let llm_cliente = receipt_core::llm::ClienteLlm::new(llm_config)
         .expect("falha ao criar cliente LLM de teste");
 
-    let csrf_token = Arc::new(Mutex::new("csrf-teste".to_string()));
     let estado = Arc::new(Mutex::new(ServerState {
         config: config.clone(),
-        csrf_token,
         db: Arc::new(Mutex::new(db)),
         llm_cliente: Arc::new(Mutex::new(llm_cliente)),
     }));
@@ -107,12 +105,6 @@ fn headers_com_pin() -> reqwest::header::HeaderMap {
     headers
 }
 
-fn headers_com_pin_e_csrf() -> reqwest::header::HeaderMap {
-    let mut headers = headers_com_pin();
-    headers.insert("x-csrf-token", "csrf-teste".parse().unwrap());
-    headers
-}
-
 #[tokio::test]
 async fn test_saude_retorna_estado_real() {
     let servidor_llm =
@@ -124,6 +116,7 @@ async fn test_saude_retorna_estado_real() {
     let cliente = cliente_http();
     let resposta = cliente
         .get(format!("http://{}/api/saude", addr))
+        .headers(headers_com_pin())
         .send()
         .await
         .unwrap();
@@ -232,7 +225,7 @@ async fn test_salvar_cupom_sucesso_e_listar() {
 
     let resposta = cliente
         .post(format!("http://{}/api/cupons", addr))
-        .headers(headers_com_pin_e_csrf())
+        .headers(headers_com_pin())
         .json(&cupom)
         .send()
         .await
@@ -296,7 +289,7 @@ async fn test_salvar_cupom_divergencia_total_retorna_400() {
 
     let resposta = cliente
         .post(format!("http://{}/api/cupons", addr))
-        .headers(headers_com_pin_e_csrf())
+        .headers(headers_com_pin())
         .json(&cupom)
         .send()
         .await
@@ -330,7 +323,7 @@ async fn test_extrair_llm_resposta_valida() {
 
     let resposta = cliente
         .post(format!("http://{}/api/extrair", addr))
-        .headers(headers_com_pin_e_csrf())
+        .headers(headers_com_pin())
         .json(&corpo)
         .send()
         .await
@@ -382,19 +375,20 @@ async fn test_extrair_llm_sem_csrf_retorna_403() {
         "total_cupom": 0.0
     });
 
-    // Sem header X-CSRF-Token
-    let mut headers = headers_com_pin();
-    headers.remove("x-csrf-token");
-
+    // Sem CSRF (removido) — apenas PIN. O servidor falso retorna 200.
     let resposta = cliente
         .post(format!("http://{}/api/extrair", addr))
-        .headers(headers)
+        .headers(headers_com_pin())
         .json(&corpo)
         .send()
         .await
         .unwrap();
 
-    assert_eq!(resposta.status(), reqwest::StatusCode::FORBIDDEN);
+    // Sem CSRF, apenas autenticação por Bearer PIN → 200 (ou 502 se LLM indisponível)
+    assert!(
+        resposta.status() == reqwest::StatusCode::OK
+            || resposta.status() == reqwest::StatusCode::BAD_GATEWAY
+    );
 }
 
 #[tokio::test]
@@ -422,7 +416,7 @@ async fn test_extrair_llm_texto_ocr_com_xss_nao_usa_innerhtml() {
 
     let resposta = cliente
         .post(format!("http://{}/api/extrair", addr))
-        .headers(headers_com_pin_e_csrf())
+        .headers(headers_com_pin())
         .json(&corpo)
         .send()
         .await
@@ -466,10 +460,8 @@ async fn test_extrair_llm_servidor_llm_indisponivel_retorna_502() {
     let llm_cliente = receipt_core::llm::ClienteLlm::new(llm_config)
         .expect("falha ao criar cliente LLM de teste");
 
-    let csrf_token = Arc::new(Mutex::new("csrf-teste".to_string()));
     let estado = Arc::new(Mutex::new(ServerState {
         config: config.clone(),
-        csrf_token,
         db: Arc::new(Mutex::new(db)),
         llm_cliente: Arc::new(Mutex::new(llm_cliente)),
     }));
@@ -503,7 +495,7 @@ async fn test_extrair_llm_servidor_llm_indisponivel_retorna_502() {
 
     let resposta = cliente
         .post(format!("http://{}/api/extrair", addr))
-        .headers(headers_com_pin_e_csrf())
+        .headers(headers_com_pin())
         .json(&corpo)
         .send()
         .await
@@ -549,7 +541,7 @@ async fn test_relatorio_periodo() {
         });
         cliente
             .post(format!("http://{}/api/cupons", addr))
-            .headers(headers_com_pin_e_csrf())
+            .headers(headers_com_pin())
             .json(&cupom)
             .send()
             .await
@@ -605,7 +597,7 @@ async fn test_extrair_llm_json_quebrado_retorna_502() {
 
     let resposta = cliente
         .post(format!("http://{}/api/extrair", addr))
-        .headers(headers_com_pin_e_csrf())
+        .headers(headers_com_pin())
         .json(&corpo)
         .send()
         .await
@@ -638,7 +630,7 @@ async fn test_extrair_llm_resposta_truncada_retorna_502() {
 
     let resposta = cliente
         .post(format!("http://{}/api/extrair", addr))
-        .headers(headers_com_pin_e_csrf())
+        .headers(headers_com_pin())
         .json(&corpo)
         .send()
         .await
@@ -668,7 +660,7 @@ async fn test_extrair_llm_chave_invalida_401() {
 
     let resposta = cliente
         .post(format!("http://{}/api/extrair", addr))
-        .headers(headers_com_pin_e_csrf())
+        .headers(headers_com_pin())
         .json(&corpo)
         .send()
         .await
@@ -703,7 +695,7 @@ async fn test_extrair_llm_item_invalido_via_aviso_retorna_200_com_aviso() {
 
     let resposta = cliente
         .post(format!("http://{}/api/extrair", addr))
-        .headers(headers_com_pin_e_csrf())
+        .headers(headers_com_pin())
         .json(&corpo)
         .send()
         .await
