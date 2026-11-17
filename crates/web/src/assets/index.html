@@ -168,6 +168,24 @@
   </div>
 </div>
 
+<!-- Modal de login (PIN) -->
+<div class="modal" id="modal-login" hidden>
+  <div class="modal-conteudo">
+    <header class="modal-header">
+      <h2>Autenticação</h2>
+    </header>
+    <div class="modal-corpo">
+      <p>Digite o PIN de acesso para continuar.</p>
+      <div class="form-group">
+        <label for="input-pin">PIN (mín. 6 caracteres):</label>
+        <input type="password" id="input-pin" placeholder="••••••" autocomplete="one-time-code">
+        <span id="erro-pin" class="erro"></span>
+      </div>
+      <button id="btn-login" class="btn-primary">Entrar</button>
+    </div>
+  </div>
+</div>
+
 <script src="app.js"></script>
 </body>
 </html>

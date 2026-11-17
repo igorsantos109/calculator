@@ -7,7 +7,6 @@
 (function () {
   // ---------- Config ----------
   const API_BASE = ""; // mesma origem
-  const PIN = localStorage.getItem("cupons_pin") || "";
 
   // ---------- Estado ----------
   let estado = {
@@ -25,6 +24,30 @@
     tema: localStorage.getItem("cupons_tema") || "claro",
     conexaoOk: false,
   };
+
+  // ---------- PIN / Autenticação ----------
+  function getPin() {
+    return sessionStorage.getItem("cupons_pin") || "";
+  }
+
+  function setPin(pin) {
+    sessionStorage.setItem("cupons_pin", pin);
+  }
+
+  function clearPin() {
+    sessionStorage.removeItem("cupons_pin");
+  }
+
+  function authHeaders() {
+    const pin = getPin();
+    return pin ? { "Authorization": `Bearer ${pin}` } : {};
+  }
+
+  function authHeadersJson() {
+    const h = authHeaders();
+    h["Content-Type"] = "application/json";
+    return h;
+  }
 
   // ---------- Elementos DOM ----------
   const els = {
@@ -62,6 +85,10 @@
     statusConexao: document.getElementById("status-conexao"),
     modalDetalhes: document.getElementById("modal-detalhes"),
     modalRelatorio: document.getElementById("modal-relatorio"),
+    modalLogin: document.getElementById("modal-login"),
+    inputPin: document.getElementById("input-pin"),
+    erroPin: document.getElementById("erro-pin"),
+    btnLogin: document.getElementById("btn-login"),
     inputNovaDescricao: document.getElementById("input-nova-descricao"),
     inputNovaQuantidade: document.getElementById("input-nova-quantidade"),
     inputNovoUnitario: document.getElementById("input-novo-unitario"),
@@ -84,6 +111,14 @@
 
   async function init() {
     aplicarTema(estado.tema);
+    
+    // Verificar se tem PIN salvo
+    const pin = getPin();
+    if (!pin) {
+      mostrarLogin();
+      return;
+    }
+    
     await verificarSaude();
     carregarHistorico();
     setupEventos();
@@ -104,6 +139,10 @@
       const files = e.dataTransfer.files;
       if (files.length) processarArquivo(files[0]);
     });
+
+    // Login
+    els.btnLogin.addEventListener("click", fazerLogin);
+    els.inputPin.addEventListener("keypress", (e) => { if (e.key === "Enter") fazerLogin(); });
 
     // Modo colar texto / manual
     els.btnColarTexto.addEventListener("click", () => {
@@ -147,6 +186,48 @@
     });
   }
 
+  function mostrarLogin() {
+    els.modalLogin.hidden = false;
+    els.inputPin.value = "";
+    els.erroPin.textContent = "";
+    els.inputPin.focus();
+  }
+
+  function esconderLogin() {
+    els.modalLogin.hidden = true;
+  }
+
+  async function fazerLogin() {
+    const pin = els.inputPin.value.trim();
+    if (pin.length < 6) {
+      els.erroPin.textContent = "PIN deve ter pelo menos 6 caracteres";
+      return;
+    }
+    els.btnLogin.disabled = true;
+    els.btnLogin.textContent = "Verificando...";
+    
+    try {
+      const resp = await fetch(`${API_BASE}/api/saude`, {
+        headers: { "Authorization": `Bearer ${pin}` }
+      });
+      if (resp.ok) {
+        setPin(pin);
+        esconderLogin();
+        await verificarSaude();
+        carregarHistorico();
+        setupEventos();
+      } else {
+        const err = await resp.json();
+        els.erroPin.textContent = err.mensagem || "PIN inválido";
+      }
+    } catch (e) {
+      els.erroPin.textContent = "Não foi possível conectar ao servidor";
+    } finally {
+      els.btnLogin.disabled = false;
+      els.btnLogin.textContent = "Entrar";
+    }
+  }
+
   // ---------- Tema ----------
   function aplicarTema(tema) {
     estado.tema = tema;
@@ -160,7 +241,9 @@
   // ---------- Saúde ----------
   async function verificarSaude() {
     try {
-      const resp = await fetch(`${API_BASE}/api/saude`);
+      const resp = await fetch(`${API_BASE}/api/saude`, {
+        headers: authHeaders(),
+      });
       const dados = await resp.json();
       estado.conexaoOk = resp.ok;
       els.statusConexao.textContent = dados.llm === "alcançável" ? "Servidor OK" : "Servidor indisponível";
@@ -178,10 +261,7 @@
     try {
       const resp = await fetch(`${API_BASE}/api/extrair`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${PIN}`,
-        },
+        headers: authHeadersJson(),
         body: JSON.stringify({ texto_ocr: "teste de conexão", total_cupom: 0 }),
       });
       if (resp.ok) {
@@ -241,10 +321,7 @@
     try {
       const resp = await fetch(`${API_BASE}/api/extrair`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${PIN}`,
-        },
+        headers: authHeadersJson(),
         body: JSON.stringify({ texto_ocr: texto, total_cupom: total }),
       });
       if (!resp.ok) {
@@ -469,10 +546,7 @@
     try {
       const resp = await fetch(`${API_BASE}/api/cupons`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${PIN}`,
-        },
+        headers: authHeadersJson(),
         body: JSON.stringify(cupom),
       });
       if (!resp.ok) {
@@ -509,7 +583,7 @@
   async function carregarHistorico() {
     try {
       const resp = await fetch(`${API_BASE}/api/cupons`, {
-        headers: { "Authorization": `Bearer ${PIN}` },
+        headers: authHeaders(),
       });
       if (!resp.ok) throw new Error("Falha ao listar cupons");
       estado.historico = await resp.json();
@@ -554,7 +628,7 @@
   async function verDetalhes(id) {
     try {
       const resp = await fetch(`${API_BASE}/api/cupons/${id}`, {
-        headers: { "Authorization": `Bearer ${PIN}` },
+        headers: authHeaders(),
       });
       if (!resp.ok) throw new Error("Cupom não encontrado");
       const cupom = await resp.json();
@@ -632,7 +706,7 @@
     if (de || ate) url += "?" + (de ? "de=" + encodeURIComponent(de) : "") + (ate ? "&ate=" + encodeURIComponent(ate) : "");
     try {
       const resp = await fetch(url, {
-        headers: { "Authorization": `Bearer ${PIN}` },
+        headers: authHeaders(),
       });
       if (!resp.ok) throw new Error("Falha ao gerar relatório");
       const dados = await resp.json();
