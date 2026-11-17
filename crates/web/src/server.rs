@@ -29,8 +29,23 @@ pub struct ServerState {
 }
 
 /// Tamanho máximo do corpo de requisição (10 MB).
-#[allow(dead_code)]
 const MAX_CORPO_BYTES: usize = 10 * 1024 * 1024;
+
+/// Lê o corpo da requisição com limite de tamanho.
+async fn ler_corpo_limitado(req: Request<Body>) -> Result<hyper::body::Bytes, Box<Response<Body>>> {
+    let corpo = hyper::body::to_bytes(req.into_body())
+        .await
+        .map_err(|_| Box::new(ApiError::novo("erro_leitura", "Falha ao ler corpo da requisição")
+            .resposta(StatusCode::BAD_REQUEST)))?;
+    
+    if corpo.len() > MAX_CORPO_BYTES {
+        return Err(Box::new(ApiError::novo("corpo_grande", 
+            format!("Corpo da requisição excede o limite de {} bytes", MAX_CORPO_BYTES))
+            .resposta(StatusCode::PAYLOAD_TOO_LARGE)));
+    }
+    
+    Ok(corpo)
+}
 
 /// Erro da API em pt-BR com código.
 #[derive(Debug, Serialize)]
@@ -421,10 +436,11 @@ async fn extrair_llm(
     req: Request<Body>,
     llm_cliente: &Arc<Mutex<receipt_core::llm::ClienteLlm>>,
 ) -> Response<Body> {
-    // Ler corpo da requisição
-    let corpo = hyper::body::to_bytes(req.into_body())
-        .await
-        .unwrap_or_default();
+    // Ler corpo da requisição com limite de tamanho
+    let corpo = match ler_corpo_limitado(req).await {
+        Ok(c) => c,
+        Err(resp) => return *resp,
+    };
     let dados: serde_json::Value = match serde_json::from_slice(&corpo) {
         Ok(v) => v,
         Err(_) => {
@@ -443,6 +459,16 @@ async fn extrair_llm(
         .get("total_cupom")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
+
+    // Validações básicas dos campos
+    if texto_ocr.trim().is_empty() {
+        return ApiError::novo("campo_obrigatorio", "texto_ocr é obrigatório")
+            .resposta(StatusCode::BAD_REQUEST);
+    }
+    if total_cupom < 0.0 {
+        return ApiError::novo("campo_invalido", "total_cupom não pode ser negativo")
+            .resposta(StatusCode::BAD_REQUEST);
+    }
 
     let llm = llm_cliente.lock().await;
     match llm.extrair_itens(&texto_ocr, total_cupom).await {
@@ -491,6 +517,7 @@ async fn extrair_llm(
                     ("resposta_invalida", StatusCode::BAD_GATEWAY)
                 }
             };
+            // Erro genérico sem vazar detalhes internos/SQL
             ApiError::novo(codigo, e.to_string()).resposta(status)
         }
     }
@@ -498,9 +525,11 @@ async fn extrair_llm(
 
 /// POST /api/cupons — salvar um cupom completo.
 async fn salvar_cupom(req: Request<Body>, db: &Arc<Mutex<db::Repositorio>>) -> Response<Body> {
-    let corpo = hyper::body::to_bytes(req.into_body())
-        .await
-        .unwrap_or_default();
+    // Ler corpo da requisição com limite de tamanho
+    let corpo = match ler_corpo_limitado(req).await {
+        Ok(c) => c,
+        Err(resp) => return *resp,
+    };
     let cupom: db::CupomCompleto = match serde_json::from_slice(&corpo) {
         Ok(v) => v,
         Err(_) => {
@@ -508,6 +537,53 @@ async fn salvar_cupom(req: Request<Body>, db: &Arc<Mutex<db::Repositorio>>) -> R
                 .resposta(StatusCode::BAD_REQUEST);
         }
     };
+
+    // Validar campos obrigatórios da receita
+    if cupom.receita.data_compra.trim().is_empty() {
+        return ApiError::novo("campo_obrigatorio", "data_compra é obrigatória")
+            .resposta(StatusCode::BAD_REQUEST);
+    }
+    if cupom.receita.estabelecimento.trim().is_empty() {
+        return ApiError::novo("campo_obrigatorio", "estabelecimento é obrigatório")
+            .resposta(StatusCode::BAD_REQUEST);
+    }
+    if cupom.receita.total_cupom < 0.0 {
+        return ApiError::novo("campo_invalido", "total_cupom não pode ser negativo")
+            .resposta(StatusCode::BAD_REQUEST);
+    }
+    if cupom.receita.pagador != "igor" && cupom.receita.pagador != "renan" {
+        return ApiError::novo("campo_invalido", "pagador deve ser 'igor' ou 'renan'")
+            .resposta(StatusCode::BAD_REQUEST);
+    }
+
+    // Validar itens
+    if cupom.itens.is_empty() {
+        return ApiError::novo("campo_obrigatorio", "pelo menos um item é obrigatório")
+            .resposta(StatusCode::BAD_REQUEST);
+    }
+    for (i, ic) in cupom.itens.iter().enumerate() {
+        let item = &ic.item;
+        if item.descricao.trim().is_empty() {
+            return ApiError::novo("campo_obrigatorio", format!("item {}: descrição é obrigatória", i + 1))
+                .resposta(StatusCode::BAD_REQUEST);
+        }
+        if item.quantidade <= 0.0 {
+            return ApiError::novo("campo_invalido", format!("item {}: quantidade deve ser > 0", i + 1))
+                .resposta(StatusCode::BAD_REQUEST);
+        }
+        if item.preco_unitario < 0.0 {
+            return ApiError::novo("campo_invalido", format!("item {}: preço unitário não pode ser negativo", i + 1))
+                .resposta(StatusCode::BAD_REQUEST);
+        }
+        if item.preco_total < 0.0 {
+            return ApiError::novo("campo_invalido", format!("item {}: preço total não pode ser negativo", i + 1))
+                .resposta(StatusCode::BAD_REQUEST);
+        }
+        if ic.grupo != receipt_core::Grupo::Casa && ic.grupo != receipt_core::Grupo::Igor && ic.grupo != receipt_core::Grupo::Renan {
+            return ApiError::novo("campo_invalido", format!("item {}: grupo deve ser 'casa', 'igor' ou 'renan'", i + 1))
+                .resposta(StatusCode::BAD_REQUEST);
+        }
+    }
 
     // Validar total no core (centavos inteiros, tolerância R$ 0,05)
     let itens: Vec<receipt_core::Item> = cupom.itens.iter().map(|ic| ic.item.clone()).collect();
@@ -535,8 +611,9 @@ async fn salvar_cupom(req: Request<Body>, db: &Arc<Mutex<db::Repositorio>>) -> R
                 },
             )
         }
-        Err(e) => {
-            ApiError::novo("erro_banco", e.to_string()).resposta(StatusCode::INTERNAL_SERVER_ERROR)
+        Err(_) => {
+            // Erro genérico sem vazar detalhes internos/SQL
+            ApiError::novo("erro_banco", "Falha ao salvar cupom").resposta(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
