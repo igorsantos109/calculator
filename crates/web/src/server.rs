@@ -103,8 +103,8 @@ pub async fn handle(
     let metodo = req.method().clone();
 
     // TODAS as rotas /api exigem PIN (incluindo /api/saude).
-    // Apenas "/" (página HTML) é pública para permitir carregar a tela de login.
-    let rota_publica = caminho == "/";
+    // Apenas "/", "/app.js", "/style.css" são públicas (página + assets).
+    let rota_publica = caminho == "/" || caminho == "/app.js" || caminho == "/style.css";
 
     if !rota_publica {
         let autenticado = {
@@ -117,13 +117,7 @@ pub async fn handle(
             let xpin_ok = header_valor(&req, "x-pin")
                 .map(|pin| constante_tempo_igual(&pin, &config.pin))
                 .unwrap_or(false);
-            let query_ok = req.uri().query().is_some_and(|q| {
-                q.split('&').any(|par| match par.split_once('=') {
-                    Some((k, v)) => k == "pin" && constante_tempo_igual(v, &config.pin),
-                    None => false,
-                })
-            });
-            auth_ok || xpin_ok || query_ok
+            auth_ok || xpin_ok
         };
         if !autenticado {
             return Ok(
