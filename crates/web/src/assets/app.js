@@ -171,6 +171,38 @@
     els.filtroConciliado.addEventListener("change", renderHistorico);
     els.filtroDivergente.addEventListener("change", renderHistorico);
 
+    // Tabela de itens: delegação de eventos (registra UMA vez)
+    els.corpo.addEventListener("change", (e) => {
+      const target = e.target;
+      const idx = target.dataset.idx;
+      const campo = target.dataset.campo;
+      if (idx === undefined || !campo) return;
+      const item = estado.itens[idx];
+      if (!item) return;
+      if (campo === "grupo") {
+        item.grupo = target.value;
+      } else if (campo === "quantidade") {
+        item.quantidade = parseBR(target.value) || 0;
+      } else if (campo === "unitario") {
+        item.preco_unitario = parseBR(target.value) || 0;
+      } else if (campo === "total") {
+        item.preco_total = parseBR(target.value) || 0;
+      } else {
+        item.descricao = target.value;
+      }
+      renderItens();
+      atualizarResumo();
+    });
+
+    // Botões Remover na tabela
+    els.corpo.addEventListener("click", (e) => {
+      const btn = e.target.closest(".btn-remover");
+      if (!btn) return;
+      const idx = btn.dataset.idx;
+      if (idx === undefined) return;
+      removerItem(Number(idx));
+    });
+
     // Modais
     els.btnFecharModal.addEventListener("click", () => { els.modalDetalhes.hidden = true; });
     els.btnFecharModal2.addEventListener("click", () => { els.modalDetalhes.hidden = true; });
@@ -421,38 +453,6 @@
         <td><button type="button" data-idx="${idx}" class="btn-remover">Remover</button></td>
       `;
       els.corpo.appendChild(tr);
-    });
-
-    // Event delegation para inputs de edição
-    els.corpo.addEventListener("change", (e) => {
-      const target = e.target;
-      const idx = target.dataset.idx;
-      const campo = target.dataset.campo;
-      if (idx === undefined || !campo) return;
-      const item = estado.itens[idx];
-      if (!item) return;
-      if (campo === "grupo") {
-        item.grupo = target.value;
-      } else if (campo === "quantidade") {
-        item.quantidade = parseBR(target.value) || 0;
-      } else if (campo === "unitario") {
-        item.preco_unitario = parseBR(target.value) || 0;
-      } else if (campo === "total") {
-        item.preco_total = parseBR(target.value) || 0;
-      } else {
-        item.descricao = target.value;
-      }
-      renderItens();
-      atualizarResumo();
-    });
-
-    // Event delegation para botões Remover
-    els.corpo.addEventListener("click", (e) => {
-      const btn = e.target.closest(".btn-remover");
-      if (!btn) return;
-      const idx = btn.dataset.idx;
-      if (idx === undefined) return;
-      removerItem(Number(idx));
     });
   }
 
