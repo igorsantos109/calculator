@@ -31,11 +31,12 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Não acessar pc-sala, serviços, gestor "ia", GPU, firewall, configs de inferência
 - llm_base_url do pc-sala é só um endereço configurável; nos testes usar servidor HTTP falso
 
-## Estado atual (após PARADA 4 / ETAPA 4)
+## Estado atual (após correções F1–F11)
 - Checkout: /home/igor/ia-sh/calculador
 - Branch: agent/web-llm (a partir de main c8ce9bf)
-- HEAD local: a803185 (8 commits à frente de c8ce9bf)
-- origin/main: c8ce9bf (igual a main local) — sem push, sem pull
+- HEAD local: f42ff40 (9 commits à frente de c8ce9bf)
+- origin/main: c8ce9bf (igual a main local)
+- origin/agent/web-llm: f42ff40 (publicada)
 - Working tree limpo (salvo DIVERGENCIAS.md não rastreado, pré-existente)
 - Crates no workspace: receipt_core (core), db, web. crates/ui retirado do workspace
   (commit separado, reversível — restaurar members no Cargo.toml reintegra)
@@ -49,6 +50,8 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 6. ae260dc — ETAPA 3: criar crate crates/web (servidor HTTP, API, testes de integração)
 7. 8b1ecc0 — PARADA 3: atualizar documentos após ETAPA 3
 8. a803185 — ETAPA 4: página interativa (HTML/CSS/JS embutidos no binário)
+9. 8adab48 — ETAPA 5: pacote + ROTEIRO_TESTE.md para Ubuntu 192.168.1.184 + RELATORIO_ENTREGA.md final
+10. f42ff40 — fmt: aplicar formatação após ETAPA 5 (server.rs)
 
 ## Plano e progresso
 | ID  | Tarefa                                                | Estado         |
@@ -62,10 +65,11 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 | PARADA 3 | Relatório + saída bruta                               | CONCLUÍDA      |
 | ETAPA 4 | Página interativa (HTML/CSS/JS embutidos)             | CONCLUÍDA      |
 | PARADA 4 | Relatório + saída bruta                               | CONCLUÍDA      |
-| ETAPA 5 | Pacote + ROTEIRO_TESTE.md para Ubuntu 192.168.1.184   | EM ANDAMENTO   |
+| ETAPA 5 | Pacote + ROTEIRO_TESTE.md + RELATORIO_ENTREGA.md      | CONCLUÍDA      |
+| F1–F11 | Correções críticas pós-ETAPA 5                        | CONCLUÍDA      |
 
-## Totais de testes (após ETAPA 4)
-- receipt_core: 34 aprovados, 0 falhos, 1 ignorado (OCR fixture)
+## Totais de testes (estado final)
+- receipt_core: 36 aprovados, 0 falhos, 1 ignorado (OCR fixture)
 - db: 18 aprovados, 0 falhos, 0 ignorados
 - web: 16 testes de integração aprovados (servidor falso + banco temporário)
 - doc-tests: 0
@@ -76,6 +80,7 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - glibc: 2.41 (Debian 2.41-12+deb13u4) — importante para compatibilidade no Ubuntu alvo
 - Offline: --offline --locked funcionando
 - axum NÃO disponível offline → servidor web implementado com hyper (já no índice)
+- reqwest usa native-tls (libssl); rustls não disponível offline
 
 ## Decisões pendentes de Igor
 - D10: diferença de conciliação ≠ 0 bloqueia o cupom ou vai para alguém? Até decidir, bloquear na camada web e documentar em DIVERGENCIAS.md (não alterar core).
@@ -83,14 +88,19 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Chave do llama-server (se houver) — nunca gravar em versão.
 - Firewall/rede para 192.168.1.184.
 
-## Arquivos alterados
-- Criado: crates/web/src/assets.rs, crates/web/src/assets/{index.html,style.css,app.js}
-- Modificados: crates/web/src/lib.rs, crates/web/src/server.rs
-- Criado (ETAPA 5): deploy/config/config.toml, deploy/systemd/leitor-cupons.service,
-  deploy/scripts/verificar_ubuntu.sh, ROTEIRO_TESTE.md
+## Arquivos alterados (F1–F11)
+- crates/web/src/config.rs — PIN obrigatório ≥6 chars, validação de config
+- crates/web/src/main.rs — usa config_from_env_validado
+- crates/web/src/server.rs — sem CSRF; auth em todas rotas /api; saude com timeout; buscar_cupom com itens; relatório filtrando antes de somar
+- crates/web/src/assets/app.js — todos elementos DOM; addEventListener; sem handlers inline; escape correto
+- crates/web/tests/integracao.rs — testes atualizados para novo auth (sem CSRF)
+- crates/core/src/llm.rs — corte string seguro; delimitador à prova de >>>; teste injeção real; retry 5xx testado
+- crates/core/Cargo.toml, crates/web/Cargo.toml — reqwest features documentadas
+- RELATORIO_ENTREGA.md, HANDOFF.md — atualizados
+- DIVERGENCIAS.md — versionado (commit para tracking)
 
 ## Operações em andamento
-- ETAPA 5: pacote + ROTEIRO_TESTE.md + RELATORIO_ENTREGA.md final
+- Nenhuma (todas as correções F1–F11 concluídas)
 
 ## Última atualização
-2026-11-16 — ETAPA 4 concluída. HEAD em a803185. ETAPA 5 em andamento.
+2026-11-17 — Correções F1–F11 aplicadas. Todos os gates passando (fmt, clippy, test, build release). Binário testado manualmente. Próximo: validar no Ubuntu 192.168.1.184.
