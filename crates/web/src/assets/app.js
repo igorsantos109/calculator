@@ -412,7 +412,7 @@
         <td><input type="text" data-idx="${idx}" data-campo="quantidade" class="inp-editar" value="${formatQuantidade(item.quantidade)}"></td>
         <td><input type="text" data-idx="${idx}" data-campo="unitario" class="inp-editar" value="${formatBRL(item.preco_unitario)}"></td>
         <td><input type="text" data-idx="${idx}" data-campo="total" class="inp-editar" value="${formatBRL(item.preco_total)}"></td>
-        <td><select data-idx="${idx}" class="sel-grupo">
+        <td><select data-idx="${idx}" data-campo="grupo" class="sel-grupo">
           <option value="">Não atribuído</option>
           <option value="Casa" ${item.grupo === "Casa" ? "selected" : ""}>Casa</option>
           <option value="Igor" ${item.grupo === "Igor" ? "selected" : ""}>Igor</option>
