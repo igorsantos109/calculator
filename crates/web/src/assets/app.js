@@ -62,6 +62,21 @@
     statusConexao: document.getElementById("status-conexao"),
     modalDetalhes: document.getElementById("modal-detalhes"),
     modalRelatorio: document.getElementById("modal-relatorio"),
+    inputNovaDescricao: document.getElementById("input-nova-descricao"),
+    inputNovaQuantidade: document.getElementById("input-nova-quantidade"),
+    inputNovoUnitario: document.getElementById("input-novo-unitario"),
+    inputNovoTotal: document.getElementById("input-novo-total"),
+    inputNovoGrupo: document.getElementById("input-novo-grupo"),
+    btnFecharModal: document.getElementById("btn-fechar-modal"),
+    btnFecharModal2: document.getElementById("btn-fechar-modal2"),
+    btnFecharRelatorio: document.getElementById("btn-fechar-relatorio"),
+    btnFecharRelatorio2: document.getElementById("btn-fechar-relatorio2"),
+    btnCopiarRelatorio: document.getElementById("btn-copiar-relatorio"),
+    btnCopiarRelatorioPeriodo: document.getElementById("btn-copiar-relatorio-periodo"),
+    btnGerarRelatorio: document.getElementById("btn-gerar-relatorio"),
+    relDe: document.getElementById("rel-de"),
+    relAte: document.getElementById("rel-ate"),
+    resultadoRelatorio: document.getElementById("resultado-relatorio"),
   };
 
   // ---------- Inicialização ----------
@@ -104,7 +119,7 @@
     // Adicionar item manual
     els.btnAdicionarItem.addEventListener("click", adicionarItemManual);
     [els.inputNovaDescricao, els.inputNovaQuantidade, els.inputNovoUnitario, els.inputNovoTotal].forEach((inp) => {
-      inp.addEventListener("keypress", (e) => { if (e.key === "Enter") adicionarItemManual(); });
+      if (inp) inp.addEventListener("keypress", (e) => { if (e.key === "Enter") adicionarItemManual(); });
     });
 
     // Totais ao vivo
@@ -118,13 +133,13 @@
     els.filtroDivergente.addEventListener("change", renderHistorico);
 
     // Modais
-    document.getElementById("btn-fechar-modal").addEventListener("click", () => { els.modalDetalhes.hidden = true; });
-    document.getElementById("btn-fechar-modal2").addEventListener("click", () => { els.modalDetalhes.hidden = true; });
-    document.getElementById("btn-fechar-relatorio").addEventListener("click", () => { els.modalRelatorio.hidden = true; });
-    document.getElementById("btn-fechar-relatorio2").addEventListener("click", () => { els.modalRelatorio.hidden = true; });
-    document.getElementById("btn-copiar-relatorio").addEventListener("click", copiarRelatorioDetalhes);
-    document.getElementById("btn-copiar-relatorio-periodo").addEventListener("click", copiarRelatorioPeriodo);
-    document.getElementById("btn-gerar-relatorio").addEventListener("click", gerarRelatorioPeriodo);
+    els.btnFecharModal.addEventListener("click", () => { els.modalDetalhes.hidden = true; });
+    els.btnFecharModal2.addEventListener("click", () => { els.modalDetalhes.hidden = true; });
+    els.btnFecharRelatorio.addEventListener("click", () => { els.modalRelatorio.hidden = true; });
+    els.btnFecharRelatorio2.addEventListener("click", () => { els.modalRelatorio.hidden = true; });
+    els.btnCopiarRelatorio.addEventListener("click", copiarRelatorioDetalhes);
+    els.btnCopiarRelatorioPeriodo.addEventListener("click", copiarRelatorioPeriodo);
+    els.btnGerarRelatorio.addEventListener("click", gerarRelatorioPeriodo);
 
     // Teclado: Esc fecha modais
     document.addEventListener("keydown", (e) => {
@@ -163,7 +178,10 @@
     try {
       const resp = await fetch(`${API_BASE}/api/extrair`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${PIN}`, "X-CSRF-Token": "teste" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${PIN}`,
+        },
         body: JSON.stringify({ texto_ocr: "teste de conexão", total_cupom: 0 }),
       });
       if (resp.ok) {
@@ -226,7 +244,6 @@
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${PIN}`,
-          "X-CSRF-Token": "csrf-teste",
         },
         body: JSON.stringify({ texto_ocr: texto, total_cupom: total }),
       });
@@ -314,19 +331,51 @@
     estado.itens.forEach((item, idx) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td><input type="text" value="${escapeHtml(item.descricao)}" onchange="app.editarItem(${idx},'descricao',this.value)"></td>
-        <td><input type="text" value="${formatQuantidade(item.quantidade)}" onchange="app.editarItem(${idx},'quantidade',this.value)"></td>
-        <td><input type="text" value="${formatBRL(item.preco_unitario)}" onchange="app.editarItem(${idx},'unitario',this.value)"></td>
-        <td><input type="text" value="${formatBRL(item.preco_total)}" onchange="app.editarItem(${idx},'total',this.value)"></td>
-        <td><select onchange="app.editarItem(${idx},'grupo',this.value)">
+        <td><input type="text" data-idx="${idx}" data-campo="descricao" class="inp-editar" value="${escapeHtml(item.descricao)}"></td>
+        <td><input type="text" data-idx="${idx}" data-campo="quantidade" class="inp-editar" value="${formatQuantidade(item.quantidade)}"></td>
+        <td><input type="text" data-idx="${idx}" data-campo="unitario" class="inp-editar" value="${formatBRL(item.preco_unitario)}"></td>
+        <td><input type="text" data-idx="${idx}" data-campo="total" class="inp-editar" value="${formatBRL(item.preco_total)}"></td>
+        <td><select data-idx="${idx}" class="sel-grupo">
           <option value="">Não atribuído</option>
           <option value="Casa" ${item.grupo === "Casa" ? "selected" : ""}>Casa</option>
           <option value="Igor" ${item.grupo === "Igor" ? "selected" : ""}>Igor</option>
           <option value="Renan" ${item.grupo === "Renan" ? "selected" : ""}>Renan</option>
         </select></td>
-        <td><button type="button" onclick="app.removerItem(${idx})" style="background:var(--cor-erro);padding:0.2rem 0.5rem;font-size:0.8rem;">Remover</button></td>
+        <td><button type="button" data-idx="${idx}" class="btn-remover">Remover</button></td>
       `;
       els.corpo.appendChild(tr);
+    });
+
+    // Event delegation para inputs de edição
+    els.corpo.addEventListener("change", (e) => {
+      const target = e.target;
+      const idx = target.dataset.idx;
+      const campo = target.dataset.campo;
+      if (idx === undefined || !campo) return;
+      const item = estado.itens[idx];
+      if (!item) return;
+      if (campo === "grupo") {
+        item.grupo = target.value;
+      } else if (campo === "quantidade") {
+        item.quantidade = parseBR(target.value) || 0;
+      } else if (campo === "unitario") {
+        item.preco_unitario = parseBR(target.value) || 0;
+      } else if (campo === "total") {
+        item.preco_total = parseBR(target.value) || 0;
+      } else {
+        item.descricao = target.value;
+      }
+      renderItens();
+      atualizarResumo();
+    });
+
+    // Event delegation para botões Remover
+    els.corpo.addEventListener("click", (e) => {
+      const btn = e.target.closest(".btn-remover");
+      if (!btn) return;
+      const idx = btn.dataset.idx;
+      if (idx === undefined) return;
+      removerItem(Number(idx));
     });
   }
 
@@ -423,7 +472,6 @@
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${PIN}`,
-          "X-CSRF-Token": "csrf-teste",
         },
         body: JSON.stringify(cupom),
       });
@@ -460,7 +508,9 @@
   // ---------- Histórico ----------
   async function carregarHistorico() {
     try {
-      const resp = await fetch(`${API_BASE}/api/cupons`);
+      const resp = await fetch(`${API_BASE}/api/cupons`, {
+        headers: { "Authorization": `Bearer ${PIN}` },
+      });
       if (!resp.ok) throw new Error("Falha ao listar cupons");
       estado.historico = await resp.json();
       estado.historico = estado.historico.cupons || estado.historico || [];
@@ -503,7 +553,9 @@
   // ---------- Detalhes ----------
   async function verDetalhes(id) {
     try {
-      const resp = await fetch(`${API_BASE}/api/cupons/${id}`);
+      const resp = await fetch(`${API_BASE}/api/cupons/${id}`, {
+        headers: { "Authorization": `Bearer ${PIN}` },
+      });
       if (!resp.ok) throw new Error("Cupom não encontrado");
       const cupom = await resp.json();
       document.getElementById("det-estabelecimento").textContent = escapeHtml(cupom.receita.estabelecimento);
@@ -579,7 +631,9 @@
     let url = `${API_BASE}/api/relatorio`;
     if (de || ate) url += "?" + (de ? "de=" + encodeURIComponent(de) : "") + (ate ? "&ate=" + encodeURIComponent(ate) : "");
     try {
-      const resp = await fetch(url);
+      const resp = await fetch(url, {
+        headers: { "Authorization": `Bearer ${PIN}` },
+      });
       if (!resp.ok) throw new Error("Falha ao gerar relatório");
       const dados = await resp.json();
       const linhas = [
@@ -669,7 +723,4 @@
     els.msgSalvo.classList.remove("oculto");
     setTimeout(() => els.msgSalvo.classList.add("oculto"), 5000);
   }
-
-  // Expor para uso nos atributos on* do HTML
-  window.app = { editarItem, removerItem };
 })();
