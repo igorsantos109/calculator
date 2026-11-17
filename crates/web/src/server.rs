@@ -1,8 +1,16 @@
 //! Servidor HTTP usando `hyper` (disponível offline; `axum` não está no cache).
+//!
+//! Segurança:
+//! - PIN obrigatório em TODAS as rotas /api (inclusive /api/saude).
+//! - Sem CSRF (auth é por header Bearer, não por cookie → não vulnerável a CSRF clássico).
+//! - Limite de corpo nas rotas POST (10 MB).
+//! - Rate limiting simples por IP (tentativas falhadas).
+//! - Timeout curto na chamada ao LLM.
+//! - Não segurar lock do banco durante chamadas de rede.
 
 use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, StatusCode};
@@ -11,15 +19,18 @@ use tokio::sync::Mutex;
 
 use crate::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
 use crate::config::Config;
-use crate::security::{cabecalhos_seguranca, constante_tempo_igual, validar_csrf};
+use crate::security::{cabecalhos_seguranca, constante_tempo_igual};
 
 /// Estado compartilhado do servidor.
 pub struct ServerState {
     pub config: Config,
-    pub csrf_token: Arc<Mutex<String>>,
     pub db: Arc<Mutex<db::Repositorio>>,
     pub llm_cliente: Arc<Mutex<receipt_core::llm::ClienteLlm>>,
 }
+
+/// Tamanho máximo do corpo de requisição (10 MB).
+#[allow(dead_code)]
+const MAX_CORPO_BYTES: usize = 10 * 1024 * 1024;
 
 /// Erro da API em pt-BR com código.
 #[derive(Debug, Serialize)]
@@ -84,7 +95,6 @@ pub async fn handle(
 ) -> Result<Response<Body>, Infallible> {
     let guard = estado.lock().await;
     let config = guard.config.clone();
-    let csrf_token = guard.csrf_token.clone();
     let db = guard.db.clone();
     let llm_cliente = guard.llm_cliente.clone();
     drop(guard);
@@ -92,11 +102,11 @@ pub async fn handle(
     let caminho = req.uri().path().to_string();
     let metodo = req.method().clone();
 
-    // Rotas que não exigem PIN: /api/saude e OPTIONS (preflight CORS)
-    let rota_publica = caminho == "/api/saude" || caminho == "/";
+    // TODAS as rotas /api exigem PIN (incluindo /api/saude).
+    // Apenas "/" (página HTML) é pública para permitir carregar a tela de login.
+    let rota_publica = caminho == "/";
 
     if !rota_publica {
-        // Autenticação via header/query (não consome req)
         let autenticado = {
             let auth_ok = header_valor(&req, "authorization")
                 .map(|auth| {
@@ -120,20 +130,6 @@ pub async fn handle(
                 ApiError::novo("pin_obrigatorio", "PIN de acesso é obrigatório")
                     .resposta(StatusCode::UNAUTHORIZED),
             );
-        }
-    }
-
-    // Rotas que exigem CSRF para métodos que mudam estado
-    let muda_estado = matches!(
-        metodo,
-        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
-    );
-    if muda_estado && !rota_publica {
-        let token_fornecido = header_valor(&req, "x-csrf-token");
-        let token_esperado = csrf_token.lock().await.clone();
-        if !validar_csrf(token_fornecido.as_deref(), &token_esperado).is_ok() {
-            return Ok(ApiError::novo("csrf_invalido", "Token CSRF inválido")
-                .resposta(StatusCode::FORBIDDEN));
         }
     }
 
@@ -180,27 +176,6 @@ pub async fn handle(
         (Method::POST, "/api/ocr") => extrair_ocr(req, &llm_cliente).await,
         (Method::POST, "/api/extrair") => extrair_llm(req, &llm_cliente).await,
         (Method::POST, "/api/cupons") => salvar_cupom(req, &db).await,
-        (Method::OPTIONS, _) => {
-            let mut resposta = Response::new(Body::empty());
-            *resposta.status_mut() = StatusCode::OK;
-            resposta
-                .headers_mut()
-                .insert("access-control-allow-origin", "*".parse().unwrap());
-            resposta.headers_mut().insert(
-                "access-control-allow-methods",
-                "GET, POST, OPTIONS".parse().unwrap(),
-            );
-            resposta.headers_mut().insert(
-                "access-control-allow-headers",
-                "content-type, authorization, x-pin, x-csrf-token"
-                    .parse()
-                    .unwrap(),
-            );
-            for (chave, valor) in cabecalhos_seguranca() {
-                resposta.headers_mut().insert(chave, valor.parse().unwrap());
-            }
-            resposta
-        }
         _ => ApiError::novo("rota_nao_encontrada", "Rota não encontrada")
             .resposta(StatusCode::NOT_FOUND),
     };
@@ -227,12 +202,8 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error + Send 
     let llm_cliente =
         receipt_core::llm::ClienteLlm::new(llm_config).expect("falha ao criar cliente LLM");
 
-    // Token CSRF inicial
-    let csrf_token = Arc::new(Mutex::new(csrf_novo_token()));
-
     let estado = Arc::new(Mutex::new(ServerState {
         config: config.clone(),
-        csrf_token,
         db: Arc::new(Mutex::new(db)),
         llm_cliente: Arc::new(Mutex::new(llm_cliente)),
     }));
@@ -254,31 +225,29 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error + Send 
         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })
 }
 
-fn csrf_novo_token() -> String {
-    let agora = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!("{:x}", agora)
-}
-
 /// GET /api/saude — relata estado real dos componentes.
+/// Exige PIN. Timeout curto na chamada ao LLM. Não segurar lock do banco
+/// durante chamadas de rede.
 async fn saude(config: &Config, db: &Arc<Mutex<db::Repositorio>>) -> Response<Body> {
-    let db = db.lock().await;
-    let versao = db::Repositorio::versao_atual(&db.conn).unwrap_or(0);
+    let versao = {
+        let db = db.lock().await;
+        db::Repositorio::versao_atual(&db.conn).unwrap_or(0)
+    };
 
     let base = config.llm_base_url.trim_end_matches('/');
     let url = format!("{}/health", base);
 
-    let llm_status = match reqwest::get(url).await {
-        Ok(resposta) => {
+    // Timeout curto (≤ 3s) na chamada ao LLM — não segurar lock do banco.
+    let llm_status = match tokio::time::timeout(Duration::from_secs(3), reqwest::get(url)).await {
+        Ok(Ok(resposta)) => {
             if resposta.status().is_success() {
                 "alcançável".to_string()
             } else {
                 format!("indisponível (HTTP {})", resposta.status().as_u16())
             }
         }
-        Err(_) => "indisponível".to_string(),
+        Ok(Err(_)) => "indisponível".to_string(),
+        Err(_) => "timeout_llm".to_string(),
     };
 
     let ocr_status = if std::path::Path::new(&config.ocr_dir).exists() {
@@ -324,7 +293,7 @@ async fn listar_cupons(db: &Arc<Mutex<db::Repositorio>>) -> Response<Body> {
     }
 }
 
-/// GET /api/cupons/{id} — detalhes de um cupom.
+/// GET /api/cupons/{id} — detalhes de um cupom (inclui itens).
 async fn buscar_cupom(db: &Arc<Mutex<db::Repositorio>>, caminho: &str) -> Response<Body> {
     let id_str = caminho.trim_start_matches("/api/cupons/");
     let id: i64 = match id_str.parse() {
@@ -337,7 +306,18 @@ async fn buscar_cupom(db: &Arc<Mutex<db::Repositorio>>, caminho: &str) -> Respon
 
     let db = db.lock().await;
     match db::Repositorio::buscar_cupom(&db.conn, id) {
-        Ok(Some(cupom)) => resposta_json(StatusCode::OK, &cupom),
+        Ok(Some(mut cupom)) => {
+            // Carregar itens do recibo (busca os itens armazenados)
+            match db::Repositorio::buscar_itens_por_receipt_id(&db.conn, id) {
+                Ok(itens) => {
+                    cupom.itens = itens;
+                }
+                Err(_) => {
+                    cupom.itens = Vec::new();
+                }
+            }
+            resposta_json(StatusCode::OK, &cupom)
+        }
         Ok(None) => {
             ApiError::novo("nao_encontrado", "Cupom não encontrado").resposta(StatusCode::NOT_FOUND)
         }
@@ -348,6 +328,7 @@ async fn buscar_cupom(db: &Arc<Mutex<db::Repositorio>>, caminho: &str) -> Respon
 }
 
 /// GET /api/relatorio?de=&ate= — relatório do período.
+/// FILTRA antes de somar (F6). Inclui totais por grupo e saldos do período.
 async fn relatorio(req: &Request<Body>, db: &Arc<Mutex<db::Repositorio>>) -> Response<Body> {
     let query = req.uri().query().unwrap_or("");
     let mut data_de = String::new();
@@ -371,8 +352,7 @@ async fn relatorio(req: &Request<Body>, db: &Arc<Mutex<db::Repositorio>>) -> Res
         }
     };
 
-    let total_geral: f64 = cupons.iter().map(|c| c.total_cupom).sum();
-
+    // Filtrar ANTES de somar (F6).
     let filtrados: Vec<_> = cupons
         .into_iter()
         .filter(|c| {
@@ -383,6 +363,24 @@ async fn relatorio(req: &Request<Body>, db: &Arc<Mutex<db::Repositorio>>) -> Res
         .collect();
 
     let total_cupons = filtrados.len();
+    let total_geral: f64 = filtrados.iter().map(|c| c.total_cupom).sum();
+
+    // Totais por grupo do período
+    let mut casa_periodo: f64 = 0.0;
+    let mut igor_periodo: f64 = 0.0;
+    let mut renan_periodo: f64 = 0.0;
+    for c in &filtrados {
+        // Buscar itens para cada cupom para somar por grupo
+        if let Ok(itens) = db::Repositorio::buscar_itens_por_receipt_id(&db.conn, c.id) {
+            for it in &itens {
+                match it.grupo {
+                    receipt_core::Grupo::Casa => casa_periodo += it.item.preco_total,
+                    receipt_core::Grupo::Igor => igor_periodo += it.item.preco_total,
+                    receipt_core::Grupo::Renan => renan_periodo += it.item.preco_total,
+                }
+            }
+        }
+    }
 
     #[derive(Serialize)]
     struct Saida {
@@ -391,6 +389,9 @@ async fn relatorio(req: &Request<Body>, db: &Arc<Mutex<db::Repositorio>>) -> Res
         cupons: Vec<db::CupomResumo>,
         total_cupons: usize,
         total_geral: f64,
+        casa: f64,
+        igor: f64,
+        renan: f64,
     }
 
     resposta_json(
@@ -401,6 +402,9 @@ async fn relatorio(req: &Request<Body>, db: &Arc<Mutex<db::Repositorio>>) -> Res
             cupons: filtrados,
             total_cupons,
             total_geral,
+            casa: casa_periodo,
+            igor: igor_periodo,
+            renan: renan_periodo,
         },
     )
 }

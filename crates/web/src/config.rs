@@ -8,7 +8,7 @@ use std::path::PathBuf;
 pub struct Config {
     /// Endereço para escutar (padrão: 127.0.0.1:8080)
     pub listen_addr: SocketAddr,
-    /// PIN/token de acesso (comparação em tempo constante)
+    /// PIN/token de acesso (comparação em tempo constante, obrigatório, ≥ 6 caracteres)
     pub pin: String,
     /// Caminho para o banco de dados SQLite
     pub db_path: PathBuf,
@@ -22,6 +22,31 @@ pub struct Config {
     pub ocr_dir: PathBuf,
     /// Limite de upload em bytes (padrão: 10 MB)
     pub upload_limit: usize,
+}
+
+/// Tamanho mínimo do PIN (caracteres).
+pub const PIN_MIN_LEN: usize = 6;
+
+/// Erros de configuração.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("PIN de acesso é obrigatório. Defina CUPONS_PIN com pelo menos 6 caracteres.")]
+    PinObrigatorio,
+    #[error("PIN deve ter pelo menos {0} caracteres.")]
+    PinCurto(usize),
+}
+
+impl Config {
+    /// Valida a configuração (chamado antes de iniciar o servidor).
+    pub fn validar(&self) -> Result<(), ConfigError> {
+        if self.pin.is_empty() {
+            return Err(ConfigError::PinObrigatorio);
+        }
+        if self.pin.len() < PIN_MIN_LEN {
+            return Err(ConfigError::PinCurto(PIN_MIN_LEN));
+        }
+        Ok(())
+    }
 }
 
 impl Default for Config {
@@ -74,5 +99,14 @@ pub fn config_from_env() -> Config {
         }
     }
 
+    cfg
+}
+
+/// Carrega configuração do ambiente e valida. Panic se o PIN estiver
+/// ausente ou for curto (o servidor não inicia sem PIN válido).
+pub fn config_from_env_validado() -> Config {
+    let cfg = config_from_env();
+    cfg.validar()
+        .expect("CUPONS_PIN é obrigatório e deve ter pelo menos 6 caracteres");
     cfg
 }

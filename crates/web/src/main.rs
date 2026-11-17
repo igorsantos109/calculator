@@ -3,11 +3,11 @@
 //! Execução:
 //!   CUPONS_PIN=1234 cargo run -p web
 
-use web::{config_from_env, run};
+use web::{config_from_env_validado, run};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let config = config_from_env();
+    let config = config_from_env_validado();
 
     // Aviso de risco se escutar em endereço LAN (não 127.0.0.1)
     if config.listen_addr.ip().is_unspecified() || !config.listen_addr.ip().is_loopback() {
