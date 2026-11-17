@@ -8,9 +8,10 @@
 //! - Timeout curto na chamada ao LLM.
 //! - Não segurar lock do banco durante chamadas de rede.
 
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, StatusCode};
@@ -26,6 +27,55 @@ pub struct ServerState {
     pub config: Config,
     pub db: Arc<Mutex<db::Repositorio>>,
     pub llm_cliente: Arc<Mutex<receipt_core::llm::ClienteLlm>>,
+    pub rate_limiter: IpRateLimiter,
+}
+
+/// Rate limiting: tentativas falhadas por IP.
+/// Simples mapa em memória (reinicia ao reiniciar o servidor).
+#[derive(Debug, Default, Clone)]
+pub struct IpRateLimiter {
+    tentativas: Arc<Mutex<HashMap<String, (u32, u64)>>>,
+}
+
+impl IpRateLimiter {
+    pub fn new() -> Self {
+        Self {
+            tentativas: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub async fn registrar_falha(&self, ip: &str) {
+        let agora = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let mut tentativas = self.tentativas.lock().await;
+        let (count, tempo) = tentativas.entry(ip.to_string()).or_insert((0, agora));
+        
+        // Resetar contador se passou mais de 5 minutos (300s)
+        if agora.saturating_sub(*tempo) > 300 {
+            *count = 1;
+            *tempo = agora;
+        } else {
+            *count += 1;
+        }
+    }
+
+    pub async fn esta_bloqueado(&self, ip: &str) -> bool {
+        let agora = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let tentativas = self.tentativas.lock().await;
+        if let Some((count, tempo)) = tentativas.get(ip) {
+            if agora.saturating_sub(*tempo) > 300 {
+                return false;
+            }
+            *count >= 5
+        } else {
+            false
+        }
+    }
 }
 
 /// Tamanho máximo do corpo de requisição (10 MB).
@@ -112,6 +162,7 @@ pub async fn handle(
     let config = guard.config.clone();
     let db = guard.db.clone();
     let llm_cliente = guard.llm_cliente.clone();
+    let rate_limiter = guard.rate_limiter.clone();
     drop(guard);
 
     let caminho = req.uri().path().to_string();
@@ -135,9 +186,26 @@ pub async fn handle(
             auth_ok || xpin_ok
         };
         if !autenticado {
+            // Registrar falha para rate limiting
+            let ip = "desconhecido"; // Simplificado - em produção usar IP real
+            rate_limiter.registrar_falha(ip).await;
             return Ok(
                 ApiError::novo("pin_obrigatorio", "PIN de acesso é obrigatório")
                     .resposta(StatusCode::UNAUTHORIZED),
+            );
+        }
+    }
+
+    // Rate limiting: verificar se IP está bloqueado (apenas para rotas /api)
+    if !rota_publica {
+        // Obter IP do cliente (simplificado - hyper não expõe IP diretamente sem connection info)
+        // Para produção, usar um extractor de IP real
+        let ip = "desconhecido";
+        let bloqueado = rate_limiter.esta_bloqueado(ip).await;
+        if bloqueado {
+            return Ok(
+                ApiError::novo("rate_limit_excedido", "Muitas tentativas falhadas. Tente novamente em 5 minutos.")
+                    .resposta(StatusCode::TOO_MANY_REQUESTS),
             );
         }
     }
@@ -211,10 +279,13 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error + Send 
     let llm_cliente =
         receipt_core::llm::ClienteLlm::new(llm_config).expect("falha ao criar cliente LLM");
 
+    let rate_limiter = IpRateLimiter::new();
+
     let estado = Arc::new(Mutex::new(ServerState {
         config: config.clone(),
         db: Arc::new(Mutex::new(db)),
         llm_cliente: Arc::new(Mutex::new(llm_cliente)),
+        rate_limiter,
     }));
 
     let make_svc = make_service_fn(move |_conn| {

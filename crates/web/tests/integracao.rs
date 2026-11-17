@@ -68,6 +68,7 @@ async fn iniciar_servidor_web_teste(
         config: config.clone(),
         db: Arc::new(Mutex::new(db)),
         llm_cliente: Arc::new(Mutex::new(llm_cliente)),
+        rate_limiter: web::server::IpRateLimiter::new(),
     }));
 
     let estado_clone = estado.clone();
@@ -464,6 +465,7 @@ async fn test_extrair_llm_servidor_llm_indisponivel_retorna_502() {
         config: config.clone(),
         db: Arc::new(Mutex::new(db)),
         llm_cliente: Arc::new(Mutex::new(llm_cliente)),
+        rate_limiter: web::server::IpRateLimiter::new(),
     }));
 
     let estado_clone = estado.clone();
