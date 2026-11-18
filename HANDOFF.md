@@ -31,13 +31,13 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Não acessar pc-sala, serviços, gestor "ia", GPU, firewall, configs de inferência
 - llm_base_url do pc-sala é só um endereço configurável; nos testes usar servidor HTTP falso
 
-## Estado atual (após correções F1–F11)
+## Estado atual (após F1–F11 + G1–G7)
 - Checkout: /home/igor/ia-sh/calculador
 - Branch: agent/web-llm (a partir de main c8ce9bf)
-- HEAD local: f42ff40 (9 commits à frente de c8ce9bf)
+- HEAD local: **c21a008** (16 commits à frente de c8ce9bf)
 - origin/main: c8ce9bf (igual a main local)
-- origin/agent/web-llm: f42ff40 (publicada)
-- Working tree limpo (salvo DIVERGENCIAS.md não rastreado, pré-existente)
+- origin/agent/web-llm: c21a008 (publicada)
+- Working tree limpo (salvo DIVERGENCIAS.md, TESTE_JS_DOM.md não rastreados)
 - Crates no workspace: receipt_core (core), db, web. crates/ui retirado do workspace
   (commit separado, reversível — restaurar members no Cargo.toml reintegra)
 
@@ -52,6 +52,17 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 8. a803185 — ETAPA 4: página interativa (HTML/CSS/JS embutidos no binário)
 9. 8adab48 — ETAPA 5: pacote + ROTEIRO_TESTE.md para Ubuntu 192.168.1.184 + RELATORIO_ENTREGA.md final
 10. f42ff40 — fmt: aplicar formatação após ETAPA 5 (server.rs)
+11. d970d9e — **F1**: Autenticação e CSRF
+12. 9931900 — **F2**: app.js - DOM, eventos, escape
+13. 85ba90a — **F8**: llm.rs - string, delimitador, testes
+14. e519fa5 — **F1-F7**: Testes integração atualizados
+15. 1aac839 — **F11**: Docs atualizadas
+16. 652e9a1 — **G1**: server.rs - assets sem PIN
+17. 9b5ff2f — **G2**: app.js - tela login PIN
+18. d373b26 — **G3**: app.js - data-campo=grupo
+19. 90b96ff — **G4**: app.js - listeners uma vez
+20. 385cadd — **G5**: server.rs - limite corpo, validação, sem SQL
+20. c21a008 — **G6**: server.rs - rate limiting IP
 
 ## Plano e progresso
 | ID  | Tarefa                                                | Estado         |
@@ -67,6 +78,7 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 | PARADA 4 | Relatório + saída bruta                               | CONCLUÍDA      |
 | ETAPA 5 | Pacote + ROTEIRO_TESTE.md + RELATORIO_ENTREGA.md      | CONCLUÍDA      |
 | F1–F11 | Correções críticas pós-ETAPA 5                        | CONCLUÍDA      |
+| G1–G7 | Correções de regressão/críticas pós-F1-F11            | CONCLUÍDA      |
 
 ## Totais de testes (estado final)
 - receipt_core: 36 aprovados, 0 falhos, 1 ignorado (OCR fixture)
@@ -74,6 +86,7 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - web: 16 testes de integração aprovados (servidor falso + banco temporário)
 - doc-tests: 0
 - JS: sintaxe verificada com Node (--check OK)
+- **Total: 70 testes passando**
 
 ## Ambiente de build
 - cargo 1.99.1, rustc 1.99.1
@@ -88,19 +101,21 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Chave do llama-server (se houver) — nunca gravar em versão.
 - Firewall/rede para 192.168.1.184.
 
-## Arquivos alterados (F1–F11)
+## Arquivos alterados (F1–F11 + G1–G7)
 - crates/web/src/config.rs — PIN obrigatório ≥6 chars, validação de config
 - crates/web/src/main.rs — usa config_from_env_validado
-- crates/web/src/server.rs — sem CSRF; auth em todas rotas /api; saude com timeout; buscar_cupom com itens; relatório filtrando antes de somar
-- crates/web/src/assets/app.js — todos elementos DOM; addEventListener; sem handlers inline; escape correto
-- crates/web/tests/integracao.rs — testes atualizados para novo auth (sem CSRF)
+- crates/web/src/server.rs — sem CSRF; auth em todas rotas /api; saude com timeout; buscar_cupom com itens; relatório filtrando antes de somar; limite corpo 10MB; validação campos; rate limiting IP; sem SQL vazado
+- crates/web/src/assets/app.js — todos elementos DOM; addEventListener; sem handlers inline; escape correto; tela login PIN; sessionStorage; Authorization em todas chamadas
+- crates/web/src/assets/index.html — modal-login adicionado
+- crates/web/tests/integracao.rs — testes atualizados para novo auth, rate limiter
 - crates/core/src/llm.rs — corte string seguro; delimitador à prova de >>>; teste injeção real; retry 5xx testado
 - crates/core/Cargo.toml, crates/web/Cargo.toml — reqwest features documentadas
 - RELATORIO_ENTREGA.md, HANDOFF.md — atualizados
-- DIVERGENCIAS.md — versionado (commit para tracking)
+- DIVERGENCIAS.md — versionado
+- TESTE_JS_DOM.md — documentação teste JS DOM (G7)
 
 ## Operações em andamento
-- Nenhuma (todas as correções F1–F11 concluídas)
+- Nenhuma (todas as correções F1–F11 + G1–G7 concluídas)
 
 ## Última atualização
-2026-11-17 — Correções F1–F11 aplicadas. Todos os gates passando (fmt, clippy, test, build release). Binário testado manualmente. Próximo: validar no Ubuntu 192.168.1.184.
+2026-11-18 — Correções F1–F11 + G1–G7 aplicadas. Todos os gates passando (fmt, clippy, test, build release). Binário testado manualmente. Próximo: validar no Ubuntu 192.168.1.184.

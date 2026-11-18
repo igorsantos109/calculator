@@ -8,7 +8,7 @@ Branch local: agent/web-llm (publicada em origin/agent/web-llm).
 
 ## SHA inicial / final
 - SHA inicial (main): c8ce9bf
-- SHA final (agent/web-llm): f42ff40 (9 commits à frente de c8ce9bf)
+- SHA final (agent/web-llm): **c21a008** (16 commits à frente de c8ce9bf)
 
 ## Estado por ID (tabela de entrega final)
 
@@ -27,7 +27,8 @@ Branch local: agent/web-llm (publicada em origin/agent/web-llm).
 | ETAPA 3 | CONCLUÍDO   | ae260dc   | crate crates/web (servidor HTTP); 16 testes de integração    |
 | ETAPA 4 | CONCLUÍDO   | a803185   | página interativa (HTML/CSS/JS embutidos)                    |
 | ETAPA 5 | CONCLUÍDO   | 8adab48   | deploy/config, deploy/systemd, deploy/scripts, ROTEIRO_TESTE.md |
-| F1–F11 | CONCLUÍDO   | (atual)   | Correções críticas de frontend/backend aplicadas (ver abaixo) |
+| F1–F11 | CONCLUÍDO   | d970d9e..1aac839 | Correções críticas pós-ETAPA 5 (ver abaixo)            |
+| G1–G7 | CONCLUÍDO   | 652e9a1..c21a008 | Correções de regressão/críticas pós-F1-F11 (ver abaixo) |
 
 ## Correções F1–F11 aplicadas (pós-ETAPA 5)
 
@@ -45,11 +46,24 @@ Branch local: agent/web-llm (publicada em origin/agent/web-llm).
 | F10 | Contagem de testes reconciliada: db 18, core 36 (era 34+1=35, +12 llm - testes removidos = 36), web 16 | ✅ |
 | F11 | RELATORIO_ENTREGA.md, HANDOFF.md atualizados; DIVERGENCIAS.md versionado | ✅ |
 
+## Correções G1–G7 aplicadas (pós-F1-F11, regressões identificadas)
+
+| Fix | Descrição | Commit | Status |
+|-----|-----------|--------|--------|
+| G1 | server.rs: rota_publica inclui /app.js e /style.css (assets sem PIN) | 652e9a1 | ✅ |
+| G2 | app.js: tela de login PIN, sessionStorage, Authorization em todas chamadas | 9b5ff2f | ✅ |
+| G3 | app.js: data-campo=grupo no select, handler aceita grupo | d373b26 | ✅ |
+| G4 | app.js: ouvintes em setupEventos (uma vez), não em renderItens | 90b96ff | ✅ |
+| G5 | server.rs: limite corpo real (413), validação campos, sem SQL vazado | 385cadd | ✅ |
+| G6 | server.rs: rate limiting por IP (5 tentativas/5min → 429) | c21a008 | ✅ |
+| G7 | Script Node com DOM simulado (stub) documentado; jsdom pendente | TESTE_JS_DOM.md | ✅/⚠️ |
+
 ## Testes por pacote (estado final)
 - receipt_core: 36 aprovados, 0 falhos, 1 ignorado (OCR fixture)
 - db: 18 aprovados, 0 falhos, 0 ignorados
 - web: 16 testes de integração aprovados
 - doc-tests: 0
+- **Total: 70 testes passando**
 
 ## Dependências (offline, --locked)
 - receipt_core: serde, serde_json, thiserror, image, imageproc, alvio-ocr, tracing, reqwest (0.12, json), tokio (1, full)
