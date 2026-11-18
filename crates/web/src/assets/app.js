@@ -112,6 +112,9 @@
   async function init() {
     aplicarTema(estado.tema);
     
+    // SEMPRE registrar o listener de login ANTES de verificar PIN
+    setupLogin();
+    
     // Verificar se tem PIN salvo
     const pin = getPin();
     if (!pin) {
@@ -122,6 +125,12 @@
     await verificarSaude();
     carregarHistorico();
     setupEventos();
+  }
+
+  function setupLogin() {
+    // Login - registrado UMA vez no início
+    els.btnLogin.addEventListener("click", fazerLogin);
+    els.inputPin.addEventListener("keypress", (e) => { if (e.key === "Enter") fazerLogin(); });
   }
 
   function setupEventos() {
@@ -139,10 +148,6 @@
       const files = e.dataTransfer.files;
       if (files.length) processarArquivo(files[0]);
     });
-
-    // Login
-    els.btnLogin.addEventListener("click", fazerLogin);
-    els.inputPin.addEventListener("keypress", (e) => { if (e.key === "Enter") fazerLogin(); });
 
     // Modo colar texto / manual
     els.btnColarTexto.addEventListener("click", () => {
