@@ -13,6 +13,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use futures_util::stream::StreamExt;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::Serialize;
@@ -87,28 +88,57 @@ impl IpRateLimiter {
 const MAX_CORPO_BYTES: usize = 10 * 1024 * 1024;
 
 /// Lê o corpo da requisição com limite de tamanho.
+/// Primeiro verifica Content-Length; depois lê em streaming com teto.
 async fn ler_corpo_limitado(req: Request<Body>) -> Result<hyper::body::Bytes, Box<Response<Body>>> {
-    let corpo = hyper::body::to_bytes(req.into_body()).await.map_err(|_| {
-        Box::new(
-            ApiError::novo("erro_leitura", "Falha ao ler corpo da requisição")
-                .resposta(StatusCode::BAD_REQUEST),
-        )
-    })?;
-
-    if corpo.len() > MAX_CORPO_BYTES {
-        return Err(Box::new(
-            ApiError::novo(
-                "corpo_grande",
-                format!(
-                    "Corpo da requisição excede o limite de {} bytes",
-                    MAX_CORPO_BYTES
-                ),
-            )
-            .resposta(StatusCode::PAYLOAD_TOO_LARGE),
-        ));
+    // 1. Verificar Content-Length header ANTES de ler
+    if let Some(content_length) = req.headers().get("content-length") {
+        if let Ok(len_str) = content_length.to_str() {
+            if let Ok(len) = len_str.parse::<usize>() {
+                if len > MAX_CORPO_BYTES {
+                    return Err(Box::new(
+                        ApiError::novo(
+                            "corpo_grande",
+                            format!(
+                                "Content-Length {} excede o limite de {} bytes",
+                                len, MAX_CORPO_BYTES
+                            ),
+                        )
+                        .resposta(StatusCode::PAYLOAD_TOO_LARGE),
+                    ));
+                }
+            }
+        }
     }
 
-    Ok(corpo)
+    // 2. Ler corpo em streaming com teto (não aloca tudo se > limite)
+    let mut corpo = Vec::with_capacity(1024);
+    let mut stream = req.into_body();
+    let mut total_lido = 0usize;
+    
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.map_err(|_| {
+            Box::new(ApiError::novo("erro_leitura", "Falha ao ler corpo da requisição")
+                .resposta(StatusCode::BAD_REQUEST))
+        })?;
+        
+        total_lido += chunk.len();
+        if total_lido > MAX_CORPO_BYTES {
+            return Err(Box::new(
+                ApiError::novo(
+                    "corpo_grande",
+                    format!(
+                        "Corpo da requisição excede o limite de {} bytes",
+                        MAX_CORPO_BYTES
+                    ),
+                )
+                .resposta(StatusCode::PAYLOAD_TOO_LARGE),
+            ));
+        }
+        
+        corpo.extend_from_slice(&chunk);
+    }
+    
+    Ok(hyper::body::Bytes::from(corpo))
 }
 
 /// Erro da API em pt-BR com código.
