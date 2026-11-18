@@ -12,7 +12,7 @@
   let estado = {
     itens: [], // { descricao, quantidade, preco_unitario, preco_total, grupo }
     totalCupom: 0,
-    pagador: "Igor",
+    pagador: "igor",
     data: "",
     modo: "manual", // manual | ocr | texto
     saldoIgor: 0,
@@ -451,9 +451,9 @@
         <td><input type="text" data-idx="${idx}" data-campo="total" class="inp-editar" value="${formatBRL(item.preco_total)}"></td>
         <td><select data-idx="${idx}" data-campo="grupo" class="sel-grupo">
           <option value="">Não atribuído</option>
-          <option value="Casa" ${item.grupo === "Casa" ? "selected" : ""}>Casa</option>
-          <option value="Igor" ${item.grupo === "Igor" ? "selected" : ""}>Igor</option>
-          <option value="Renan" ${item.grupo === "Renan" ? "selected" : ""}>Renan</option>
+          <option value="casa" ${item.grupo === "casa" ? "selected" : ""}>Casa</option>
+          <option value="igor" ${item.grupo === "igor" ? "selected" : ""}>Igor</option>
+          <option value="renan" ${item.grupo === "renan" ? "selected" : ""}>Renan</option>
         </select></td>
         <td><button type="button" data-idx="${idx}" class="btn-remover">Remover</button></td>
       `;
@@ -496,9 +496,9 @@
     // Responsabilidades (regras da casa)
     let casa = 0, igorPessoal = 0, renanPessoal = 0;
     estado.itens.forEach((it) => {
-      if (it.grupo === "Casa") casa += it.preco_total || 0;
-      else if (it.grupo === "Igor") igorPessoal += it.preco_total || 0;
-      else if (it.grupo === "Renan") renanPessoal += it.preco_total || 0;
+      if (it.grupo === "casa") casa += it.preco_total || 0;
+      else if (it.grupo === "igor") igorPessoal += it.preco_total || 0;
+      else if (it.grupo === "renan") renanPessoal += it.preco_total || 0;
     });
     const metadeCasa = casa / 2;
     let respIgor = igorPessoal + metadeCasa;
@@ -506,11 +506,11 @@
     // Centavo indivisível para quem NÃO pagou
     const centavosCasa = Math.round(casa * 100);
     if (centavosCasa % 2 === 1) {
-      if (pagador === "Igor") respRenan += 0.01;
+      if (pagador === "igor") respRenan += 0.01;
       else respIgor += 0.01;
     }
-    const valorPagoIgor = pagador === "Igor" ? totalCupom : 0;
-    const valorPagoRenan = pagador === "Renan" ? totalCupom : 0;
+    const valorPagoIgor = pagador === "igor" ? totalCupom : 0;
+    const valorPagoRenan = pagador === "renan" ? totalCupom : 0;
     estado.saldoIgor = valorPagoIgor - respIgor;
     estado.saldoRenan = valorPagoRenan - respRenan;
 
@@ -531,7 +531,7 @@
     }
 
     // Validar que todos os itens têm grupo
-    const semGrupo = estado.itens.find((it) => !it.grupo);
+    const semGrupo = estado.itens.find((it) => !it.grupo || it.grupo === "");
     if (semGrupo) {
       mostrarErro("Todos os itens precisam de um grupo (Casa/Igor/Renan).");
       return;
@@ -570,7 +570,7 @@
   function novoCupom() {
     limparItens();
     els.inputTotalCupom.value = "0,00";
-    els.inputPagador.value = "Igor";
+    els.inputPagador.value = "igor";
     els.inputData.value = "";
     estado.data = "";
     secaoVisiveis(false);
@@ -646,20 +646,20 @@
       const pagador = cupom.receita.pagador;
       let casa = 0, igorP = 0, renanP = 0;
       cupom.itens.forEach((it) => {
-        if (it.grupo === "Casa") casa += it.item.preco_total || 0;
-        else if (it.grupo === "Igor") igorP += it.item.preco_total || 0;
-        else if (it.grupo === "Renan") renanP += it.item.preco_total || 0;
+        if (it.grupo === "casa") casa += it.item.preco_total || 0;
+        else if (it.grupo === "igor") igorP += it.item.preco_total || 0;
+        else if (it.grupo === "renan") renanP += it.item.preco_total || 0;
       });
       const metadeCasa = casa / 2;
       let respIgor = igorP + metadeCasa;
       let respRenan = renanP + metadeCasa;
       const centavosCasa = Math.round(casa * 100);
       if (centavosCasa % 2 === 1) {
-        if (pagador === "Igor") respRenan += 0.01;
+        if (pagador === "igor") respRenan += 0.01;
         else respIgor += 0.01;
       }
-      const vpIgor = pagador === "Igor" ? cupom.receita.total_cupom : 0;
-      const vpRenan = pagador === "Renan" ? cupom.receita.total_cupom : 0;
+      const vpIgor = pagador === "igor" ? cupom.receita.total_cupom : 0;
+      const vpRenan = pagador === "renan" ? cupom.receita.total_cupom : 0;
       const saldoIgor = vpIgor - respIgor;
       const saldoRenan = vpRenan - respRenan;
 
