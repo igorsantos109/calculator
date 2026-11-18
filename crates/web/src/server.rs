@@ -51,7 +51,7 @@ impl IpRateLimiter {
             .as_secs();
         let mut tentativas = self.tentativas.lock().await;
         let (count, tempo) = tentativas.entry(ip.to_string()).or_insert((0, agora));
-        
+
         // Resetar contador se passou mais de 5 minutos (300s)
         if agora.saturating_sub(*tempo) > 300 {
             *count = 1;
@@ -76,6 +76,11 @@ impl IpRateLimiter {
             false
         }
     }
+
+    pub async fn zerar_contador(&self, ip: &str) {
+        let mut tentativas = self.tentativas.lock().await;
+        tentativas.remove(ip);
+    }
 }
 
 /// Tamanho máximo do corpo de requisição (10 MB).
@@ -83,17 +88,26 @@ const MAX_CORPO_BYTES: usize = 10 * 1024 * 1024;
 
 /// Lê o corpo da requisição com limite de tamanho.
 async fn ler_corpo_limitado(req: Request<Body>) -> Result<hyper::body::Bytes, Box<Response<Body>>> {
-    let corpo = hyper::body::to_bytes(req.into_body())
-        .await
-        .map_err(|_| Box::new(ApiError::novo("erro_leitura", "Falha ao ler corpo da requisição")
-            .resposta(StatusCode::BAD_REQUEST)))?;
-    
+    let corpo = hyper::body::to_bytes(req.into_body()).await.map_err(|_| {
+        Box::new(
+            ApiError::novo("erro_leitura", "Falha ao ler corpo da requisição")
+                .resposta(StatusCode::BAD_REQUEST),
+        )
+    })?;
+
     if corpo.len() > MAX_CORPO_BYTES {
-        return Err(Box::new(ApiError::novo("corpo_grande", 
-            format!("Corpo da requisição excede o limite de {} bytes", MAX_CORPO_BYTES))
-            .resposta(StatusCode::PAYLOAD_TOO_LARGE)));
+        return Err(Box::new(
+            ApiError::novo(
+                "corpo_grande",
+                format!(
+                    "Corpo da requisição excede o limite de {} bytes",
+                    MAX_CORPO_BYTES
+                ),
+            )
+            .resposta(StatusCode::PAYLOAD_TOO_LARGE),
+        ));
     }
-    
+
     Ok(corpo)
 }
 
@@ -203,10 +217,11 @@ pub async fn handle(
         let ip = "desconhecido";
         let bloqueado = rate_limiter.esta_bloqueado(ip).await;
         if bloqueado {
-            return Ok(
-                ApiError::novo("rate_limit_excedido", "Muitas tentativas falhadas. Tente novamente em 5 minutos.")
-                    .resposta(StatusCode::TOO_MANY_REQUESTS),
-            );
+            return Ok(ApiError::novo(
+                "rate_limit_excedido",
+                "Muitas tentativas falhadas. Tente novamente em 5 minutos.",
+            )
+            .resposta(StatusCode::TOO_MANY_REQUESTS));
         }
     }
 
@@ -635,24 +650,42 @@ async fn salvar_cupom(req: Request<Body>, db: &Arc<Mutex<db::Repositorio>>) -> R
     for (i, ic) in cupom.itens.iter().enumerate() {
         let item = &ic.item;
         if item.descricao.trim().is_empty() {
-            return ApiError::novo("campo_obrigatorio", format!("item {}: descrição é obrigatória", i + 1))
-                .resposta(StatusCode::BAD_REQUEST);
+            return ApiError::novo(
+                "campo_obrigatorio",
+                format!("item {}: descrição é obrigatória", i + 1),
+            )
+            .resposta(StatusCode::BAD_REQUEST);
         }
         if item.quantidade <= 0.0 {
-            return ApiError::novo("campo_invalido", format!("item {}: quantidade deve ser > 0", i + 1))
-                .resposta(StatusCode::BAD_REQUEST);
+            return ApiError::novo(
+                "campo_invalido",
+                format!("item {}: quantidade deve ser > 0", i + 1),
+            )
+            .resposta(StatusCode::BAD_REQUEST);
         }
         if item.preco_unitario < 0.0 {
-            return ApiError::novo("campo_invalido", format!("item {}: preço unitário não pode ser negativo", i + 1))
-                .resposta(StatusCode::BAD_REQUEST);
+            return ApiError::novo(
+                "campo_invalido",
+                format!("item {}: preço unitário não pode ser negativo", i + 1),
+            )
+            .resposta(StatusCode::BAD_REQUEST);
         }
         if item.preco_total < 0.0 {
-            return ApiError::novo("campo_invalido", format!("item {}: preço total não pode ser negativo", i + 1))
-                .resposta(StatusCode::BAD_REQUEST);
+            return ApiError::novo(
+                "campo_invalido",
+                format!("item {}: preço total não pode ser negativo", i + 1),
+            )
+            .resposta(StatusCode::BAD_REQUEST);
         }
-        if ic.grupo != receipt_core::Grupo::Casa && ic.grupo != receipt_core::Grupo::Igor && ic.grupo != receipt_core::Grupo::Renan {
-            return ApiError::novo("campo_invalido", format!("item {}: grupo deve ser 'casa', 'igor' ou 'renan'", i + 1))
-                .resposta(StatusCode::BAD_REQUEST);
+        if ic.grupo != receipt_core::Grupo::Casa
+            && ic.grupo != receipt_core::Grupo::Igor
+            && ic.grupo != receipt_core::Grupo::Renan
+        {
+            return ApiError::novo(
+                "campo_invalido",
+                format!("item {}: grupo deve ser 'casa', 'igor' ou 'renan'", i + 1),
+            )
+            .resposta(StatusCode::BAD_REQUEST);
         }
     }
 
@@ -684,7 +717,8 @@ async fn salvar_cupom(req: Request<Body>, db: &Arc<Mutex<db::Repositorio>>) -> R
         }
         Err(_) => {
             // Erro genérico sem vazar detalhes internos/SQL
-            ApiError::novo("erro_banco", "Falha ao salvar cupom").resposta(StatusCode::INTERNAL_SERVER_ERROR)
+            ApiError::novo("erro_banco", "Falha ao salvar cupom")
+                .resposta(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
