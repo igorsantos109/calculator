@@ -408,9 +408,9 @@
     const grupo = document.getElementById("input-novo-grupo").value;
 
     if (!descricao) { mostrarErro("Informe a descrição."); return; }
-    if (!quantidade || quantidade <= 0) { mostrarErro("Quantidade inválida (deve ser > 0)."); return; }
-    if (unitario == null || unitario < 0) { mostrarErro("Preço unitário inválido."); return; }
-    if (total == null || total < 0) { mostrarErro("Preço total inválido."); return; }
+    if (isNaN(quantidade) || quantidade <= 0) { mostrarErro("Quantidade inválida (deve ser > 0)."); return; }
+    if (isNaN(unitario) || unitario < 0) { mostrarErro("Preço unitário inválido."); return; }
+    if (isNaN(total) || total < 0) { mostrarErro("Preço total inválido."); return; }
     if (!grupo) { mostrarErro("Selecione o grupo."); return; }
 
     estado.itens.push({ descricao, quantidade, preco_unitario: unitario, preco_total: total, grupo });
@@ -480,17 +480,18 @@
     estado.somaItens = soma;
     els.somaItensEl.textContent = formatBRL(soma);
 
-    const totalCupom = parseBR(els.inputTotalCupom.value) || 0;
+    const totalCupomCentavos = parseBRCentavos(els.inputTotalCupom.value);
+    const somaCentavos = Math.round(soma * 100);
     const pagador = els.inputPagador.value;
-    const diferenca = soma - totalCupom;
+    const diffCentavos = somaCentavos - totalCupomCentavos;
 
-    // Selo de conciliação
-    const diffAbs = Math.abs(diferenca);
-    if (diffAbs <= 0.05) {
+    // Selo de conciliação (tolerância de 5 centavos = 500 centésimos? Não, 5 centavos = 5 centavos em centavos = 5)
+    if (Math.abs(diffCentavos) <= 5) {
       els.selo.textContent = "Conciliado (diferença ≤ R$ 0,05)";
       els.selo.className = "selo selo-conciliado";
     } else {
-      els.selo.textContent = "Divergente (diferença " + formatBRL(diferenca) + ")";
+      const diff = diffCentavos / 100;
+      els.selo.textContent = "Divergente (diferença " + formatBRL(diff) + ")";
       els.selo.className = "selo selo-divergente";
     }
 
@@ -510,8 +511,9 @@
       if (pagador === "igor") respRenan += 0.01;
       else respIgor += 0.01;
     }
-    const valorPagoIgor = pagador === "igor" ? totalCupom : 0;
-    const valorPagoRenan = pagador === "renan" ? totalCupom : 0;
+    const valorPagoIgor = pagador === "igor" ? (parseBR(els.inputTotalCupom.value) || 0) : 0;
+    const valorPagoRenan = pagador === "renan" ? (parseBR(els.inputTotalCupom.value) || 0) : 0;
+
     estado.saldoIgor = valorPagoIgor - respIgor;
     estado.saldoRenan = valorPagoRenan - respRenan;
 
@@ -524,10 +526,16 @@
   // ---------- Salvar ----------
   async function salvarCupom() {
     // Validar total (D10: divergência bloqueia na camada web até decisão de Igor)
-    const soma = estado.somaItens;
-    const total = parseBR(els.inputTotalCupom.value) || 0;
-    if (Math.abs(soma - total) > 0.05) {
-      mostrarErro("Divergência de conciliação: a soma dos itens (" + formatBRL(soma) + ") difere do total do cupom (" + formatBRL(total) + ") em mais de R$ 0,05. Ajuste antes de salvar.");
+    // Usar centavos inteiros para comparação exata (igual ao core)
+    const somaCentavos = Math.round(estado.somaItens * 100);
+    const totalCentavos = parseBRCentavos(els.inputTotalCupom.value);
+    if (isNaN(totalCentavos)) {
+      mostrarErro("Total do cupom inválido.");
+      return;
+    }
+    const diffCentavos = Math.abs(somaCentavos - totalCentavos);
+    if (diffCentavos > 5) {
+      mostrarErro("Divergência de conciliação: a soma dos itens (" + formatBRL(somaCentavos / 100) + ") difere do total do cupom (" + formatBRL(parseBR(els.inputTotalCupom.value) || 0) + ") em mais de R$ 0,05. Ajuste antes de salvar.");
       return;
     }
 
@@ -548,9 +556,9 @@
 
     const cupom = {
       receita: {
-        data_compra: els.inputData.value || new Date().toISOString().slice(0, 10),
+        data_compra: validarData(els.inputData.value) || new Date().toISOString().slice(0, 10),
         estabelecimento: els.inputEstabelecimento.value.trim() || "",
-        total_cupom: total,
+        total_cupom: parseBR(els.inputTotalCupom.value) || 0,
         imagem_path: "",
         pagador: els.inputPagador.value,
       },
@@ -748,9 +756,11 @@
 
   // ---------- Utilitários ----------
   function parseBR(texto) {
-    if (texto == null || texto === "") return 0;
+    if (texto == null || texto === "") return NaN;
     let t = String(texto).trim();
-    if (t === "") return 0;
+    if (t === "") return NaN;
+    // Aceitar "R$ 5,50" ou "R$ 1.234,56"
+    t = t.replace(/^R\$\s*/i, "");
     // Rejeitar NaN/inf
     if (/^(nan|inf|infinity|-inf|-infinity)$/i.test(t)) return NaN;
     // Formato brasileiro: 1.234,56
@@ -774,6 +784,13 @@
     return isNaN(v) ? NaN : v;
   }
 
+  // Converte valor para centavos (inteiro) para comparação exata
+  function parseBRCentavos(texto) {
+    const v = parseBR(texto);
+    if (isNaN(v)) return NaN;
+    return Math.round(v * 100);
+  }
+
   function formatBRL(valor) {
     if (valor == null || !isFinite(valor)) return "R$ 0,00";
     const negativo = valor < 0;
@@ -783,6 +800,38 @@
     const dec = (centavos % 100).toString().padStart(2, "0");
     const inteiraStr = inteira.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
     return (negativo ? "-" : "") + "R$ " + inteiraStr + "," + dec;
+  }
+
+  // Valida e normaliza data: aceita DD/MM/AAAA ou AAAA-MM-DD, retorna AAAA-MM-DD
+  function validarData(data) {
+    if (!data || !data.trim()) return null;
+    const t = data.trim();
+    // DD/MM/AAAA
+    const m1 = t.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (m1) {
+      const [, d, m, y] = m1;
+      const dia = parseInt(d, 10);
+      const mes = parseInt(m, 10);
+      const ano = parseInt(y, 10);
+      if (mes < 1 || mes > 12 || dia < 1 || dia > 31) return null;
+      // Validação básica de dias por mês
+      const diasNoMes = [31, (ano % 4 === 0 && (ano % 100 !== 0 || ano % 400 === 0)) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+      if (dia > diasNoMes[mes - 1]) return null;
+      return `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+    }
+    // AAAA-MM-DD
+    const m2 = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m2) {
+      const [, y, m, d] = m2;
+      const ano = parseInt(y, 10);
+      const mes = parseInt(m, 10);
+      const dia = parseInt(d, 10);
+      if (mes < 1 || mes > 12 || dia < 1 || dia > 31) return null;
+      const diasNoMes = [31, (ano % 4 === 0 && (ano % 100 !== 0 || ano % 400 === 0)) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+      if (dia > diasNoMes[mes - 1]) return null;
+      return `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+    }
+    return null;
   }
 
   function formatQuantidade(v) {
