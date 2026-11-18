@@ -67,6 +67,7 @@
     corpo: document.getElementById("corpo-tabela-itens"),
     somaItensEl: document.getElementById("soma-itens"),
     inputTotalCupom: document.getElementById("input-total-cupom"),
+    inputEstabelecimento: document.getElementById("input-estabelecimento"),
     inputPagador: document.getElementById("input-pagador"),
     inputData: document.getElementById("input-data"),
     selo: document.getElementById("selo-conciliacao"),
@@ -530,6 +531,14 @@
       return;
     }
 
+    // Validar estabelecimento obrigatório
+    const estabelecimento = els.inputEstabelecimento.value.trim();
+    if (!estabelecimento) {
+      mostrarErro("Estabelecimento é obrigatório.");
+      els.inputEstabelecimento.focus();
+      return;
+    }
+
     // Validar que todos os itens têm grupo
     const semGrupo = estado.itens.find((it) => !it.grupo || it.grupo === "");
     if (semGrupo) {
@@ -540,7 +549,7 @@
     const cupom = {
       receita: {
         data_compra: els.inputData.value || new Date().toISOString().slice(0, 10),
-        estabelecimento: (document.getElementById("input-nova-estabelecimento") || {}).value || "Estabelecimento",
+        estabelecimento: els.inputEstabelecimento.value.trim() || "",
         total_cupom: total,
         imagem_path: "",
         pagador: els.inputPagador.value,
