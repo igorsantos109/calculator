@@ -878,4 +878,25 @@
     els.msgSalvo.classList.remove("oculto");
     setTimeout(() => els.msgSalvo.classList.add("oculto"), 5000);
   }
+
+  // H6: expor para teste via node:vm (DOM simulado). Não afeta a produção.
+  if (typeof window !== "undefined") {
+    window.app = {
+      estado,
+      adicionarItemManual,
+      removerItem,
+      salvarCupom,
+      verDetalhes,
+      atualizarResumo,
+      validarData,
+      parseBR,
+      formatBRL,
+      escapeHtml,
+      setupLogin,
+      init,
+      fazerLogin,
+      setPin,
+      getPin,
+    };
+  }
 })();

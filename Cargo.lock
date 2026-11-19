@@ -2970,6 +2970,7 @@ name = "web"
 version = "0.1.0"
 dependencies = [
  "db",
+ "futures-util",
  "hyper 0.14.32",
  "receipt_core",
  "reqwest",
