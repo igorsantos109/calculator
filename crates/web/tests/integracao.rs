@@ -673,6 +673,120 @@ async fn test_extrair_llm_chave_invalida_401() {
     assert_eq!(corpo["codigo"], "chave_llm_invalida");
 }
 
+/// H1: contrato — o JSON EXATO que o app.js envia em salvarCupom
+/// (grupos em minúsculas, como o select value="casa" etc.)
+/// deve ser aceito por POST /api/cupons com 201.
+#[tokio::test]
+async fn test_h1_contrato_grupo_minusculo_aceito_201() {
+    let servidor_llm =
+        servidor_llm_false(ResponseTemplate::new(200).set_body_json(serde_json::json!({}))).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, _temp_dir) = iniciar_servidor_web_teste(dir, &servidor_llm).await;
+
+    let cliente = cliente_http();
+
+    // Corpo idêntico ao cupom montado em salvarCupom() no app.js:
+    // grupo vem do <select> com value minúscula ("casa"/"igor"/"renan").
+    let corpo_exato_app_js = serde_json::json!({
+        "receita": {
+            "data_compra": "2026-11-18",
+            "estabelecimento": "Mercado Teste",
+            "total_cupom": 20.00,
+            "imagem_path": "",
+            "pagador": "igor"
+        },
+        "itens": [
+            {
+                "item": {
+                    "descricao": "Leite 1L",
+                    "quantidade": 2.0,
+                    "preco_unitario": 10.0,
+                    "preco_total": 20.0
+                },
+                "grupo": "casa"
+            }
+        ]
+    });
+
+    let resposta = cliente
+        .post(format!("http://{}/api/cupons", addr))
+        .headers(headers_com_pin())
+        .json(&corpo_exato_app_js)
+        .send()
+        .await
+        .unwrap();
+
+    let status = resposta.status();
+    let texto = resposta.text().await.unwrap_or_default();
+    assert_eq!(
+        status,
+        reqwest::StatusCode::CREATED,
+        "POST /api/cupons com grupo minúsculo (corpo exato do app.js) deve devolver 201; body: {}",
+        texto
+    );
+}
+
+/// H1: GET /api/cupons/{id} deve devolver grupos em minúsculas,
+/// consistente com o que o app.js compara em verDetalhes.
+#[tokio::test]
+async fn test_h1_get_cupom_devolve_grupo_minusculo() {
+    let servidor_llm =
+        servidor_llm_false(ResponseTemplate::new(200).set_body_json(serde_json::json!({}))).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, _temp_dir) = iniciar_servidor_web_teste(dir, &servidor_llm).await;
+
+    let cliente = cliente_http();
+
+    let cupom = serde_json::json!({
+        "receita": {
+            "data_compra": "2026-11-18",
+            "estabelecimento": "Mercado",
+            "total_cupom": 10.0,
+            "imagem_path": "",
+            "pagador": "renan"
+        },
+        "itens": [
+            {
+                "item": {
+                    "descricao": "Pão",
+                    "quantidade": 1.0,
+                    "preco_unitario": 10.0,
+                    "preco_total": 10.0
+                },
+                "grupo": "igor"
+            }
+        ]
+    });
+
+    let resposta = cliente
+        .post(format!("http://{}/api/cupons", addr))
+        .headers(headers_com_pin())
+        .json(&cupom)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resposta.status(), reqwest::StatusCode::CREATED);
+    let criado: serde_json::Value = resposta.json().await.unwrap();
+    let id = criado["id"].as_i64().unwrap();
+
+    let resposta = cliente
+        .get(format!("http://{}/api/cupons/{}", addr, id))
+        .headers(headers_com_pin())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resposta.status(), reqwest::StatusCode::OK);
+    let corpo: serde_json::Value = resposta.json().await.unwrap();
+    assert_eq!(
+        corpo["itens"][0]["grupo"],
+        serde_json::json!("igor"),
+        "GET /api/cupons/{{id}} deve devolver grupo em minúsculas"
+    );
+    assert_eq!(corpo["receita"]["pagador"], serde_json::json!("renan"));
+}
+
 #[tokio::test]
 async fn test_extrair_llm_item_invalido_via_aviso_retorna_200_com_aviso() {
     // Item com quantidade <= 0 deve virar aviso, não fazer a requisição falhar

@@ -7,23 +7,38 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Enum representing the classification group for a receipt item.
+///
+/// H1: o contrato JSON é em minúsculas ("casa"/"igor"/"renan"), porque é
+/// esse o valor que o frontend envia (<select value="casa">) e compara.
+/// `alias` mantém a forma antiga ("Casa"/"Igor"/"Renan") aceita na
+/// desserialização, para não quebrar clientes ou dados legados.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Grupo {
     /// Gasto comum da casa (dividido 50/50 entre Igor e Renan)
+    #[serde(alias = "Casa")]
     Casa,
     /// Gasto pessoal do Igor
+    #[serde(alias = "Igor")]
     Igor,
     /// Gasto pessoal do Renan
+    #[serde(alias = "Renan")]
     Renan,
 }
 
 /// Quem pagou o cupom.
+///
+/// H1: contrato JSON em minúsculas ("igor"/"renan"), com alias para a
+/// forma antiga ("Igor"/"Renan").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum Pagador {
     #[default]
     /// Igor pagou
+    #[serde(alias = "Igor")]
     Igor,
     /// Renan pagou
+    #[serde(alias = "Renan")]
     Renan,
 }
 
@@ -226,6 +241,78 @@ pub mod llm;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---------- H1: contrato serde Grupo/Pagador ----------
+
+    /// H1: o app.js envia grupos em minúsculas ("casa"/"igor"/"renan")
+    /// porque o <select> usa value minúsculo. O enum deve aceitar isso.
+    #[test]
+    fn test_h1_grupo_desserializa_minusculo() {
+        assert_eq!(
+            serde_json::from_str::<Grupo>(r#""casa""#).unwrap(),
+            Grupo::Casa
+        );
+        assert_eq!(
+            serde_json::from_str::<Grupo>(r#""igor""#).unwrap(),
+            Grupo::Igor
+        );
+        assert_eq!(
+            serde_json::from_str::<Grupo>(r#""renan""#).unwrap(),
+            Grupo::Renan
+        );
+    }
+
+    /// H1: a forma antiga ("Casa"/"Igor"/"Renan") continua aceita (alias),
+    /// para não quebrar clientes/DB legados.
+    #[test]
+    fn test_h1_grupo_aceita_alias_maiusculo() {
+        assert_eq!(
+            serde_json::from_str::<Grupo>(r#""Casa""#).unwrap(),
+            Grupo::Casa
+        );
+        assert_eq!(
+            serde_json::from_str::<Grupo>(r#""Igor""#).unwrap(),
+            Grupo::Igor
+        );
+        assert_eq!(
+            serde_json::from_str::<Grupo>(r#""Renan""#).unwrap(),
+            Grupo::Renan
+        );
+    }
+
+    /// H1: serializa em minúsculas — é o que a API devolve e o app.js compara.
+    #[test]
+    fn test_h1_grupo_serializa_minusculo() {
+        assert_eq!(serde_json::to_string(&Grupo::Casa).unwrap(), r#""casa""#);
+        assert_eq!(serde_json::to_string(&Grupo::Igor).unwrap(), r#""igor""#);
+        assert_eq!(serde_json::to_string(&Grupo::Renan).unwrap(), r#""renan""#);
+    }
+
+    #[test]
+    fn test_h1_pagador_desserializa_minusculo_e_alias() {
+        assert_eq!(
+            serde_json::from_str::<Pagador>(r#""igor""#).unwrap(),
+            Pagador::Igor
+        );
+        assert_eq!(
+            serde_json::from_str::<Pagador>(r#""renan""#).unwrap(),
+            Pagador::Renan
+        );
+        assert_eq!(
+            serde_json::from_str::<Pagador>(r#""Igor""#).unwrap(),
+            Pagador::Igor
+        );
+        assert_eq!(
+            serde_json::from_str::<Pagador>(r#""Renan""#).unwrap(),
+            Pagador::Renan
+        );
+    }
+
+    #[test]
+    fn test_h1_pagador_serializa_minusculo() {
+        assert_eq!(serde_json::to_string(&Pagador::Igor).unwrap(), r#""igor""#);
+        assert_eq!(serde_json::to_string(&Pagador::Renan).unwrap(), r#""renan""#);
+    }
 
     #[test]
     fn test_calcular_totais_vazia() {
