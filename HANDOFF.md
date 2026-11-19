@@ -34,9 +34,9 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 ## Estado atual (após F1–F11 + G1–G15 + H1–H6 + G16)
 - Checkout: /home/igor/ia-sh/calculador
 - Branch: agent/web-llm (a partir de main c8ce9bf)
-- HEAD local: **958009f** (igual a origin/agent/web-llm antes de G16)
+- HEAD local: **f422ad0** (G16) — igual a origin/agent/web-llm
 - origin/main: c8ce9bf (igual a main local)
-- origin/agent/web-llm: 958009f
+- origin/agent/web-llm: f422ad0 (pushado)
 - Crates no workspace: receipt_core (core), db, web. crates/ui retirado do workspace
 
 ## Commits locais (agent/web-llm — H1–H6)
@@ -93,17 +93,11 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - HANDOFF.md — atualizado com SHA real do HEAD
 
 ## Operações em andamento
-- **Nada foi commitado ainda.** Working tree com 4 modificados e 4 untracked.
-  - Modificados: `.gitignore`, `HANDOFF.md`,
-    `crates/web/tests/integracao.rs`, `tests/js/test_app.js`
-  - Untracked: `test_dom.js`, `test_final_g14.js`, `test_g14.js`,
-    `tests/js/test_app_simple.js`
-- Push **autorizado** pelo usuário ("enviar ao gh"), ainda não executado.
-- Ação concreta pendente: `git add` dos 5 arquivos acima (4 modificados +
-  `tests/js/test_app_simple.js`), commit G16, `git push origin agent/web-llm`.
-- NÃO adicionar: `test_g14.js` (quebrado por caminho), `test_dom.js`,
-  `test_final_g14.js` (cobertos), `cupons.db.*.bak` (dados reais).
-- Todas as correções H1–H6 e G16 concluídas e verificadas.
+- Nenhuma. G16 commitado (**f422ad0**) e pushado para
+  `origin/agent/web-llm` (958009f..f422ad0).
+- Restam apenas 3 untracked, deliberadamente **não** versionados:
+  `test_dom.js`, `test_final_g14.js`, `test_g14.js` (ver decisão em G16).
+- Nenhuma alteração local pendente; working tree limpo quanto ao rastreado.
 
 ## Sessão G16 (2026-11-19)
 ### Proteção de dados (descoberta importante)
@@ -149,6 +143,7 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Validar no Ubuntu 192.168.1.184 conforme `ROTEIRO_TESTE.md`.
 
 ## Última atualização
-2026-11-19 — G16: .gitignore de backups, 2 testes JS corrigidos, clippy limpo.
-Gates reverificados agora (fmt/clippy/test/build/JS) — todos verdes.
-Push autorizado mas AINDA NÃO EXECUTADO — ver "Operações em andamento".
+2026-11-19 — G16 commitado (**f422ad0**) e pushado para
+`origin/agent/web-llm` (958009f..f422ad0). Gates reverificados:
+fmt OK, clippy `-D warnings` OK, test 82 passando (core 41, db 18, web 23),
+JS 9/9, build release OK. Nenhuma operação em andamento.
