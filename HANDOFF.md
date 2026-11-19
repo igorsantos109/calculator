@@ -34,9 +34,11 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 ## Estado atual (após F1–F11 + G1–G15 + H1–H6 + G16)
 - Checkout: /home/igor/ia-sh/calculador
 - Branch: agent/web-llm (a partir de main c8ce9bf)
-- HEAD local: **8b523b7** — igual a origin/agent/web-llm
-- origin/main: c8ce9bf (igual a main local)
-- origin/agent/web-llm: 8b523b7 (pushado)
+- HEAD local = origin/agent/web-llm: **ver `git rev-parse HEAD` na retomada**
+  (o HEAD avança a cada commit de documentação; a fonte da verdade é o git).
+- Último commit de **código**: `f422ad0` (G16). Commits seguintes são só
+  documentação do HANDOFF.
+- origin/main: c8ce9bf (igual a main local) — nunca recebeu merge da branch
 - Crates no workspace: receipt_core (core), db, web. crates/ui retirado do workspace
 
 ## Commits locais (agent/web-llm — H1–H6)
@@ -93,8 +95,8 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - HANDOFF.md — atualizado com SHA real do HEAD
 
 ## Operações em andamento
-- Nenhuma. Sincronia local/remoto verificada: HEAD = `origin/agent/web-llm`
-  = **8b523b7**. Nada a enviar.
+- Nenhuma. Sincronia local/remoto verificada: HEAD local = `origin` (pushado).
+  Nada a enviar.
 - Restam apenas 3 untracked, deliberadamente **não** versionados:
   `test_dom.js`, `test_final_g14.js`, `test_g14.js` (ver decisão em G16).
 
@@ -142,8 +144,9 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Validar no Ubuntu 192.168.1.184 conforme `ROTEIRO_TESTE.md`.
 
 ## Última atualização
-2026-11-19 — G16 em **f422ad0** e documentação de estado em **50dbd5e** +
-**8b523b7** (correção das SHAs no HANDOFF), tudo pushado para
-`origin/agent/web-llm`. Sincronia local/remoto verificada: HEAD = origin.
+2026-11-19 — G16 (código) em **f422ad0**; commits posteriores são apenas
+documentação do HANDOFF e estão pushados (HEAD local = origin).
+**Nota:** a partir daqui as seções de estado não citam SHA do HEAD, porque
+isso gerava um novo commit a cada correção. Use `git rev-parse HEAD`.
 Gates: fmt OK, clippy `-D warnings` OK, 82 testes Rust (core 41, db 18,
 web 23), JS 9/9, build release OK. Nenhuma operação em andamento.
