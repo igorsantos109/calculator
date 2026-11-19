@@ -21,6 +21,7 @@ const APP_JS_PATH = path.resolve(
 const DOM_STUB_PATH = path.resolve(process.cwd(), "tests/js/dom_stub.js");
 
 let ultimaRequisicaoEnviada = null;
+let requisicoes = [];
 let fetchMockRespostas = {};
 
 // Mock de setTimeout/clearTimeout para não travar o node --test
@@ -37,11 +38,13 @@ vm.runInThisContext(domStubSrc, {
 });
 
 globalThis.fetch = async (url, options = {}) => {
-  ultimaRequisicaoEnviada = {
+  const registro = {
     url,
     options,
     body: options && options.body ? options.body : null,
   };
+  requisicoes.push(registro);
+  ultimaRequisicaoEnviada = registro;
   const resposta = fetchMockRespostas[url] || {
     ok: false,
     status: 404,
@@ -63,6 +66,7 @@ function resetGlobalState() {
   window.sessionStorage.store = {};
   window.localStorage.store = {};
   ultimaRequisicaoEnviada = null;
+  requisicoes = [];
   fetchMockRespostas = {};
 }
 
@@ -161,8 +165,19 @@ function registrarElemento(id, tag = "div") {
 // TESTES H6
 // ---------------------------------------------------------------------------
 
-test("H6 - login na primeira visita define PIN no sessionStorage", () => {
+test("H6 - login na primeira visita define PIN no sessionStorage", async () => {
   resetGlobalState();
+
+  mockResposta("/api/saude", {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      banco: "ok",
+      schema_versao: 3,
+      llm: "indisponível",
+      ocr: "pasta_ocr_ausente",
+    }),
+  });
 
   app.setupLogin();
 
@@ -170,12 +185,17 @@ test("H6 - login na primeira visita define PIN no sessionStorage", () => {
   const inputPin = document.getElementById("input-pin");
   inputPin.value = "123456";
 
-  btnLogin.dispatchEvent({ type: "click", target: btnLogin });
+  await btnLogin.dispatchEvent({ type: "click", target: btnLogin });
 
   assert.strictEqual(
     window.sessionStorage.getItem("cupons_pin"),
     "123456",
     "PIN deve ser salvo no sessionStorage"
+  );
+  assert.strictEqual(
+    document.getElementById("erro-pin").textContent,
+    "",
+    "não deve haver mensagem de erro após login válido"
   );
 });
 
@@ -212,9 +232,12 @@ test("H6 - salvarCupom envia corpo compatível com contrato H1 (grupos minúscul
   }
   assert.ok(!erroSalvar, `salvarCupom não deve lançar: ${erroSalvar}`);
 
-  const req = ultimaRequisicaoEnviada;
-  assert.ok(req, "fetch deve ter sido chamado por salvarCupom");
-  assert.strictEqual(req.url, "/api/cupons");
+  // salvarCupom dispara POST /api/cupons e, em seguida, GET /api/cupons
+  // (carregarHistorico). Isolar o POST pelo método.
+  const req = requisicoes.find(
+    (r) => r.url === "/api/cupons" && r.options && r.options.method === "POST"
+  );
+  assert.ok(req, "POST /api/cupons deve ter sido chamado por salvarCupom");
   assert.strictEqual(
     req.options && req.options.method,
     "POST",

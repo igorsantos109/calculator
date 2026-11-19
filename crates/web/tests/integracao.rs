@@ -891,7 +891,7 @@ async fn test_h2_ver_detalhes_saldos_corretos_com_api_minusculo() {
         }
     }
     let metade_casa = casa / 2.0;
-    let mut resp_igor = igor_p + metade_casa;
+    let resp_igor = igor_p + metade_casa;
     let mut resp_renan = renan_p + metade_casa;
     let centavos_casa = (casa * 100.0).round() as i64;
     if centavos_casa % 2 == 1 {
@@ -961,9 +961,9 @@ async fn test_extrair_llm_item_invalido_via_aviso_retorna_200_com_aviso() {
     assert!((corpo["soma_itens"].as_f64().unwrap() - 5.5).abs() < f64::EPSILON);
 }
 
-/// ===========================
-/// H3: Rate limiting real por IP
-/// ===========================
+// ===========================
+// H3: Rate limiting real por IP
+// ===========================
 
 /// H3: Teste unitário do IpRateLimiter — 5 falhas bloqueiam a 6ª (mesmo IP)
 #[tokio::test]

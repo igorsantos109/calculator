@@ -31,13 +31,12 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Não acessar pc-sala, serviços, gestor "ia", GPU, firewall, configs de inferência
 - llm_base_url do pc-sala é só um endereço configurável; nos testes usar servidor HTTP falso
 
-## Estado atual (após F1–F11 + G1–G15 + H1–H6)
+## Estado atual (após F1–F11 + G1–G15 + H1–H6 + G16)
 - Checkout: /home/igor/ia-sh/calculador
 - Branch: agent/web-llm (a partir de main c8ce9bf)
-- HEAD local: **9bddbda** (6 commits H1–H6 à frente de 06009fa)
+- HEAD local: **958009f** (igual a origin/agent/web-llm antes de G16)
 - origin/main: c8ce9bf (igual a main local)
-- origin/agent/web-llm: 49931a6 (não pushado — HEAD local à frente)
-- Working tree limpo (arquivos *.db.*.bak, test_dom.js, test_g14.js, test_final_g14.js, tests/js não rastreados — não commitar)
+- origin/agent/web-llm: 958009f
 - Crates no workspace: receipt_core (core), db, web. crates/ui retirado do workspace
 
 ## Commits locais (agent/web-llm — H1–H6)
@@ -94,7 +93,62 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - HANDOFF.md — atualizado com SHA real do HEAD
 
 ## Operações em andamento
-- Nenhuma (todas as correções H1–H6 concluídas)
+- **Nada foi commitado ainda.** Working tree com 4 modificados e 4 untracked.
+  - Modificados: `.gitignore`, `HANDOFF.md`,
+    `crates/web/tests/integracao.rs`, `tests/js/test_app.js`
+  - Untracked: `test_dom.js`, `test_final_g14.js`, `test_g14.js`,
+    `tests/js/test_app_simple.js`
+- Push **autorizado** pelo usuário ("enviar ao gh"), ainda não executado.
+- Ação concreta pendente: `git add` dos 5 arquivos acima (4 modificados +
+  `tests/js/test_app_simple.js`), commit G16, `git push origin agent/web-llm`.
+- NÃO adicionar: `test_g14.js` (quebrado por caminho), `test_dom.js`,
+  `test_final_g14.js` (cobertos), `cupons.db.*.bak` (dados reais).
+- Todas as correções H1–H6 e G16 concluídas e verificadas.
+
+## Sessão G16 (2026-11-19)
+### Proteção de dados (descoberta importante)
+- Os 5 arquivos `cupons.db.*.bak` na raiz contêm **dados reais de cupons** e
+  apareciam como untracked — o `.gitignore` cobria `*.db` mas não `*.bak`.
+- Correção: adicionados `*.bak`, `*.db.*`, `*.sqlite.*` ao `.gitignore`.
+- Verificado com `git check-ignore -v cupons.db.20261116T210935.bak`.
+- Os backups **nunca foram commitados** em nenhum push anterior.
+
+### Bugs de harness corrigidos (2 testes JS já versionados estavam quebrados)
+- `tests/js/test_app.js` cobria `app.js` desde H6 mas **2 de 4 testes falhavam**:
+  1. **login** — `fazerLogin` é `async`; o teste sincronizado assertava antes do
+     `await` concluir o `setPin`. Corrigido: teste `async` + `await` no
+     dispatchEvent + mock de `/api/saude`.
+  2. **salvarCupom** — `salvarCupom` dispara POST `/api/cupons` e em seguida
+     GET `/api/cupons` (`carregarHistorico`); o mock sobrescrevia
+     `ultimaRequisicaoEnviada`, perdendo o POST. Corrigido: array `requisicoes`
+     + `find` filtrando por `options.method === "POST"`.
+- **Não era bug de produção** — ambos eram falhas do próprio teste.
+- `tests/js/test_app_simple.js` (novo): mesmas correções aplicadas.
+
+### Clippy corrigido
+- `crates/web/tests/integracao.rs`: bloco de comentário `///` com linha vazia
+  antes de `#[tokio::test]` (`empty_line_after_outer_attr`); `unused_mut` em
+  `resp_igor`.
+
+### Arquivos untracked — decisão
+- Versionar: `tests/js/test_app_simple.js` (variante enxuta, mesma cobertura).
+- **Não versionar** `test_g14.js`: quebrado, usa `__dirname/../../` e escapa
+  do repo (`/home/igor/`). `test_final_g14.js` já usa o caminho correto.
+- **Não versionar** `test_dom.js`, `test_final_g14.js`: verificações estáticas
+  de string já cobertas por `test_app.js` + 23 testes de integração Rust.
+
+### Gates verificados (G16)
+- `cargo fmt --all -- --check`: OK
+- `cargo clippy --workspace --all-targets -- -D warnings`: exit 0
+- `cargo test --workspace --locked`: 82 passando (core 41, db 18, web 23), 0 falhos
+- JS: `node --test tests/js/test_app.js tests/js/test_app_simple.js` → 9/9
+- `cargo build --release --workspace --locked`: OK
+- Binário revalidado: `/api/saude` OK com PIN; 401 sem PIN; PIN < 6 recusado
+
+### Próxima ação
+- Validar no Ubuntu 192.168.1.184 conforme `ROTEIRO_TESTE.md`.
 
 ## Última atualização
-2026-11-19 — H1–H6 CONCLUÍDO. HEAD local 9bddbda. Não pushado, não mergeado em main.
+2026-11-19 — G16: .gitignore de backups, 2 testes JS corrigidos, clippy limpo.
+Gates reverificados agora (fmt/clippy/test/build/JS) — todos verdes.
+Push autorizado mas AINDA NÃO EXECUTADO — ver "Operações em andamento".

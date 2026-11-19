@@ -1,6 +1,9 @@
 /target/
 *.db
 *.sqlite
+*.bak
+*.db.*
+*.sqlite.*
 *.png
 *.jpg
 *.env
