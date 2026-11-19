@@ -74,16 +74,17 @@ async fn iniciar_servidor_web_teste(
     let estado_clone = estado.clone();
 
     tokio::spawn(async move {
-        let make_svc = hyper::service::make_service_fn(move |conn: &hyper::server::conn::AddrStream| {
-            let estado = estado_clone.clone();
-            let client_ip = conn.remote_addr();
-            async move {
-                Ok::<_, std::convert::Infallible>(hyper::service::service_fn(move |req| {
-                    let estado = estado.clone();
-                    async move { handle(req, estado, client_ip).await }
-                }))
-            }
-        });
+        let make_svc =
+            hyper::service::make_service_fn(move |conn: &hyper::server::conn::AddrStream| {
+                let estado = estado_clone.clone();
+                let client_ip = conn.remote_addr();
+                async move {
+                    Ok::<_, std::convert::Infallible>(hyper::service::service_fn(move |req| {
+                        let estado = estado.clone();
+                        async move { handle(req, estado, client_ip).await }
+                    }))
+                }
+            });
         let servidor = hyper::Server::from_tcp(listener)
             .expect("falha ao criar listener TCP")
             .serve(make_svc);
@@ -473,16 +474,17 @@ async fn test_extrair_llm_servidor_llm_indisponivel_retorna_502() {
     let addr = addr_real;
 
     tokio::spawn(async move {
-        let make_svc = hyper::service::make_service_fn(move |conn: &hyper::server::conn::AddrStream| {
-            let estado = estado_clone.clone();
-            let client_ip = conn.remote_addr();
-            async move {
-                Ok::<_, std::convert::Infallible>(hyper::service::service_fn(move |req| {
-                    let estado = estado.clone();
-                    async move { handle(req, estado, client_ip).await }
-                }))
-            }
-        });
+        let make_svc =
+            hyper::service::make_service_fn(move |conn: &hyper::server::conn::AddrStream| {
+                let estado = estado_clone.clone();
+                let client_ip = conn.remote_addr();
+                async move {
+                    Ok::<_, std::convert::Infallible>(hyper::service::service_fn(move |req| {
+                        let estado = estado.clone();
+                        async move { handle(req, estado, client_ip).await }
+                    }))
+                }
+            });
         let servidor = hyper::Server::from_tcp(listener)
             .expect("falha ao criar listener TCP")
             .serve(make_svc);
@@ -902,9 +904,21 @@ async fn test_h2_ver_detalhes_saldos_corretos_com_api_minusculo() {
     // resp_igor = 30+20=50, resp_renan = 30+20=50 (+0.01 centavo indivisível)
     // saldo_igor = 100-50 = 50, saldo_renan = 0-50.01 = -50.01
     assert!((resp_igor - 50.0).abs() < 0.01, "resp_igor={}", resp_igor);
-    assert!((resp_renan - 50.01).abs() < 0.01, "resp_renan={}", resp_renan);
-    assert!((saldo_igor - 50.0).abs() < 0.01, "saldo_igor={}", saldo_igor);
-    assert!((saldo_renan - (-50.01)).abs() < 0.01, "saldo_renan={}", saldo_renan);
+    assert!(
+        (resp_renan - 50.01).abs() < 0.01,
+        "resp_renan={}",
+        resp_renan
+    );
+    assert!(
+        (saldo_igor - 50.0).abs() < 0.01,
+        "saldo_igor={}",
+        saldo_igor
+    );
+    assert!(
+        (saldo_renan - (-50.01)).abs() < 0.01,
+        "saldo_renan={}",
+        saldo_renan
+    );
 }
 
 #[tokio::test]
@@ -960,7 +974,10 @@ async fn test_h3_rate_limiter_5_falhas_bloqueia_6a() {
     for _ in 0..5 {
         limiter.registrar_falha(ip).await;
     }
-    assert!(limiter.esta_bloqueado(ip).await, "após 5 falhas deve estar bloqueado");
+    assert!(
+        limiter.esta_bloqueado(ip).await,
+        "após 5 falhas deve estar bloqueado"
+    );
 }
 
 /// H3: IP diferente não é afetado
@@ -973,7 +990,10 @@ async fn test_h3_rate_limiter_outro_ip_nao_afetado() {
     for _ in 0..5 {
         limiter.registrar_falha(ip1).await;
     }
-    assert!(!limiter.esta_bloqueado(ip2).await, "IP diferente não deve estar bloqueado");
+    assert!(
+        !limiter.esta_bloqueado(ip2).await,
+        "IP diferente não deve estar bloqueado"
+    );
 }
 
 /// H3: Sucesso zera o contador
@@ -989,13 +1009,19 @@ async fn test_h3_rate_limiter_sucesso_zera_contador() {
 
     // Sucesso = zerar contador
     limiter.zerar_contador(ip).await;
-    assert!(!limiter.esta_bloqueado(ip).await, "após zerar, não deve estar bloqueado");
+    assert!(
+        !limiter.esta_bloqueado(ip).await,
+        "após zerar, não deve estar bloqueado"
+    );
 
     // Mais 4 falhas = ainda não bloqueia (contador reiniciou)
     for _ in 0..4 {
         limiter.registrar_falha(ip).await;
     }
-    assert!(!limiter.esta_bloqueado(ip).await, "após zerar, 4 falhas não bloqueiam");
+    assert!(
+        !limiter.esta_bloqueado(ip).await,
+        "após zerar, 4 falhas não bloqueiam"
+    );
 }
 
 /// H3: Integração — 5 PINs errados → 6ª requisição (mesmo IP, mesmo PIN errado) = 429
@@ -1012,7 +1038,10 @@ async fn test_h3_integracao_5_pin_errado_6a_429() {
     let pin_errado = "errado123";
     let headers_errado = {
         let mut h = reqwest::header::HeaderMap::new();
-        h.insert("Authorization", format!("Bearer {}", pin_errado).parse().unwrap());
+        h.insert(
+            "Authorization",
+            format!("Bearer {}", pin_errado).parse().unwrap(),
+        );
         h
     };
 
@@ -1040,5 +1069,8 @@ async fn test_h3_integracao_5_pin_errado_6a_429() {
         "6ª requisição com PIN errado deve dar 429"
     );
     // Verificar Retry-After header
-    assert!(resp.headers().get("retry-after").is_some(), "deve ter header Retry-After");
+    assert!(
+        resp.headers().get("retry-after").is_some(),
+        "deve ter header Retry-After"
+    );
 }

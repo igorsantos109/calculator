@@ -311,7 +311,10 @@ mod tests {
     #[test]
     fn test_h1_pagador_serializa_minusculo() {
         assert_eq!(serde_json::to_string(&Pagador::Igor).unwrap(), r#""igor""#);
-        assert_eq!(serde_json::to_string(&Pagador::Renan).unwrap(), r#""renan""#);
+        assert_eq!(
+            serde_json::to_string(&Pagador::Renan).unwrap(),
+            r#""renan""#
+        );
     }
 
     #[test]

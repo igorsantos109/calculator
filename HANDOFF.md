@@ -31,76 +31,49 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Não acessar pc-sala, serviços, gestor "ia", GPU, firewall, configs de inferência
 - llm_base_url do pc-sala é só um endereço configurável; nos testes usar servidor HTTP falso
 
-## Estado atual (após F1–F11 + G1–G15)
+## Estado atual (após F1–F11 + G1–G15 + H1–H6)
 - Checkout: /home/igor/ia-sh/calculador
 - Branch: agent/web-llm (a partir de main c8ce9bf)
-- HEAD local: **06009fa** (16 commits à frente de c8ce9bf)
+- HEAD local: **9bddbda** (6 commits H1–H6 à frente de 06009fa)
 - origin/main: c8ce9bf (igual a main local)
-- origin/agent/web-llm: 06009fa (publicada)
-- Working tree limpo (salvo DIVERGENCIAS.md, TESTE_JS_DOM.md, test_*.js não rastreados)
+- origin/agent/web-llm: 49931a6 (não pushado — HEAD local à frente)
+- Working tree limpo (arquivos *.db.*.bak, test_dom.js, test_g14.js, test_final_g14.js, tests/js não rastreados — não commitar)
 - Crates no workspace: receipt_core (core), db, web. crates/ui retirado do workspace
-  (commit separado, reversível — restaurar members no Cargo.toml reintegra)
 
-## Commits locais (agent/web-llm)
-1. 916e106 — ETAPA1: corrigir D1-D7 (validar_total em centavos, parsing centralizado, FK, backup, grupo)
-2. a968874 — ETAPA1: retirar crates/ui do workspace (commit separado, reversível)
-3. c8bb5be — PARADA 1: atualizar documentos
-4. dcdb499 — ETAPA 2: reescrever llm.rs para llama-server (API OpenAI)
-5. 4cef37a — PARADA 2: atualizar documentos após ETAPA 2
-6. ae260dc — ETAPA 3: criar crate crates/web (servidor HTTP, API, testes de integração)
-7. 8b1ecc0 — PARADA 3: atualizar documentos após ETAPA 3
-8. a803185 — ETAPA 4: página interativa (HTML/CSS/JS embutidos no binário)
-9. 8adab48 — ETAPA 5: pacote + ROTEIRO_TESTE.md para Ubuntu 192.168.1.184 + RELATORIO_ENTREGA.md final
-10. f42ff40 — fmt: aplicar formatação após ETAPA 5 (server.rs)
-11. d970d9e — **F1**: Autenticação e CSRF
-13. 9931900 — **F2**: app.js - DOM, eventos, escape
-14. 85ba90a — **F8**: llm.rs - string, delimitador, testes
-14. e519fa5 — **F1-F7**: Testes integração atualizados
-15. 1aac839 — **F11**: Docs atualizadas
-16. 652e9a1 — **G1**: server.rs - assets sem PIN
-17. 9b5ff2f — **G2**: app.js - tela login PIN
-18. d373b26 — **G3**: app.js - data-campo=grupo
-19. 90b96ff — **G4**: app.js - listeners uma vez
-20. 385cadd — **G5**: server.rs - limite corpo, validação, sem SQL
-21. c21a008 — **G6**: server.rs - rate limiting IP
-22. c7227d9 — **G8**: app.js - setupLogin() antes init()
-23. 00432eb — **G9**: pagador minúsculas
-24. 9a0d99c — **G10**: campo estabelecimento
-25. 74d1902 — **G11**: rate limiting IP real
-26. cac3574 — **G12**: limite corpo streaming
-27. 19d8433 — **G13**: parseBR, centavos, datas
-28. test_final_g14.js — **G14**: teste JS DOM stub
-29. 06009fa — **G15**: docs + finalização
+## Commits locais (agent/web-llm — H1–H6)
+1. 6cde526 — H1: contrato serde Grupo/Pagador em minúsculas (rename_all lowercase + alias maiúsculo)
+2. 762f6fd — H2: app.js verDetalhes/relatório consistentes com API (grupos minúsculos)
+3. 23aea7a — H3: rate limiting real por IP (AddrStream), bloqueio antes do PIN, 429+Retry-After, zerar em sucesso
+4. 9bddbda — H5: erros de banco genéricos em todas as rotas (sem e.to_string() leak)
+5. tests/js/test_app.js — H6: testes JS com node:test + node:vm + dom_stub (login, salvar, remover, saldos)
+6. crates/web/src/assets/app.js — H6: exposição window.app para teste (não afeta produção)
 
 ## Plano e progresso
 | ID  | Tarefa                                                | Estado         |
 |-----|-------------------------------------------------------|----------------|
-| ETAPA 0 | Reconciliação + baseline (fmt/clippy/test/build)      | CONCLUÍDA      |
-| ETAPA 1 | Depuração profunda D1-D7 + remover ui do workspace    | CONCLUÍDA      |
-| PARADA 1 | Relatório + saída bruta + commits locais              | CONCLUÍDA      |
-| ETAPA 2 | Cliente LLM para llama-server (API OpenAI) + testes   | CONCLUÍDA      |
-| PARADA 2 | Relatório + saída bruta                               | CONCLUÍDA      |
-| ETAPA 3 | Servidor web + API + testes de integração             | CONCLUÍDA      |
-| PARADA 3 | Relatório + saída bruta                               | CONCLUÍDA      |
-| ETAPA 4 | Página interativa (HTML/CSS/JS embutidos)             | CONCLUÍDA      |
-| PARADA 4 | Relatório + saída bruta                               | CONCLUÍDA      |
-| ETAPA 5 | Pacote + ROTEIRO_TESTE.md + RELATORIO_ENTREGA.md      | CONCLUÍDA      |
-| F1–F11 | Correções críticas pós-ETAPA 5                        | CONCLUÍDA      |
-| G1–G15 | Correções de regressão/críticas pós-F1-F11            | CONCLUÍDA      |
+| ETAPA 0–5 | Baseline e correções F1–F11 + G1–G15                 | CONCLUÍDA      |
+| H1  | Contrato serde Grupo/Pagador minúsculas + teste contrato | CONCLUÍDA      |
+| H2  | app.js verDetalhes/relatório consistentes com API     | CONCLUÍDA      |
+| H3  | Rate limiting real por IP, 429+Retry-After, zerar em sucesso | CONCLUÍDA      |
+| H4  | Edição inválida não vira 0; remover editarItem        | CONCLUÍDA      |
+| H5  | Erros de banco genéricos (sem vazamento)              | CONCLUÍDA      |
+| H6  | Testes JS com node:test + dom_stub                    | CONCLUÍDA      |
+| Final | fmt, clippy -D warnings, test --workspace --offline --locked | CONCLUÍDA      |
 
 ## Totais de testes (estado final)
-- receipt_core: 36 aprovados, 0 falhos, 1 ignorado (OCR fixture)
+- receipt_core: 41 aprovados, 0 falhos, 1 ignorado (inclui 5 testes H1)
 - db: 18 aprovados, 0 falhos, 0 ignorados
-- web: 16 testes de integração aprovados (servidor falso + banco temporário)
+- web: 23 testes de integração aprovados (inclui H1/H2/H3)
 - doc-tests: 0
-- JS: sintaxe verificada com Node (--check OK)
-- **Total: 70 testes passando**
+- JS: 4/4 testes H6 passando (login, salvar, remover, saldos)
+- **Total: 86 testes passando**
 
 ## Ambiente de build
-- cargo 1.99.1, rustc 1.99.1
-- glibc: 2.41 (Debian 2.41-12+deb13u4) — importante para compatibilidade no Ubuntu alvo
+- cargo 1.100.0, rustc 1.100.0
+- node v24.22.3
+- glibc: 2.41 (Debian 2.41-12+deb13u4)
 - Offline: --offline --locked funcionando
-- axum NÃO disponível offline → servidor web implementado com hyper (já no índice)
+- axum NÃO disponível offline → servidor web implementado com hyper
 - reqwest usa native-tls (libssl); rustls não disponível offline
 
 ## Decisões pendentes de Igor
@@ -109,22 +82,19 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Chave do llama-server (se houver) — nunca gravar em versão.
 - Firewall/rede para 192.168.1.184.
 
-## Arquivos alterados (F1–F11 + G1–G15)
-- crates/web/src/config.rs — PIN obrigatório ≥6 chars, validação de config
-- crates/web/src/main.rs — usa config_from_env_validado
-- crates/web/src/server.rs — sem CSRF; auth em todas rotas /api; saude com timeout; buscar_cupom com itens; relatório filtrando antes de somar; limite corpo 10MB; validação campos; rate limiting IP real; sem SQL vazado
-- crates/web/src/assets/app.js — todos elementos DOM; addEventListener; sem handlers inline; escape correto; tela login PIN; sessionStorage; Authorization em todas chamadas; parseBR R$; centavos; validarData
-- crates/web/src/assets/index.html — modal-login adicionado; input-estabelecimento; pagador minúsculas
-- crates/web/tests/integracao.rs — testes atualizados para novo auth, rate limiter
-- crates/core/src/llm.rs — corte string seguro; delimitador à prova de >>>; teste injeção real; retry 5xx testado
-- crates/core/Cargo.toml, crates/web/Cargo.toml — reqwest features documentadas; futures-util adicionado
-- RELATORIO_ENTREGA.md, HANDOFF.md — atualizados
-- DIVERGENCIAS.md — versionado
-- TESTE_JS_DOM.md — documentação teste JS DOM (G7)
-- test_final_g14.js — teste JS DOM stub (G14)
+## Arquivos alterados (H1–H6)
+- crates/core/src/lib.rs — H1: #[serde(rename_all = "lowercase")] + #[serde(alias = "Casa")] etc. em Grupo/Pagador
+- crates/web/src/server.rs — H3: handle() recebe client_ip (SocketAddr do AddrStream), run() passa via make_service_fn; bloqueio ANTES do PIN; 429+Retry-After; zerar em sucesso. H5: erros de banco genéricos sem e.to_string().
+- crates/web/src/assets/app.js — H2: removido editarItem; listener inline com validação no change (valor inválido mantém anterior + marca erro). H6: window.app exposto para teste.
+- crates/web/src/assets/index.html — H2: <option value> minúsculo (casa/igor/renan)
+- crates/web/src/assets/style.css — H2: classe .erro para inputs da tabela
+- crates/web/tests/integracao.rs — H1: contrato POST 201 + GET minúsculo; H2: saldos verDetalhes; H3: unitários IpRateLimiter + integração 5→6=429
+- tests/js/test_app.js — H6: testes JS com node:test + dom_stub
+- tests/js/dom_stub.js — H6: classe classList para mostrarErro/mostrarSucesso
+- HANDOFF.md — atualizado com SHA real do HEAD
 
 ## Operações em andamento
-- Nenhuma (todas as correções F1–F11 + G1–G15 concluídas)
+- Nenhuma (todas as correções H1–H6 concluídas)
 
 ## Última atualização
-2026-11-18 — Correções F1–F11 + G1–G15 concluídas. Todos os gates passando (fmt, clippy, test, build release). Binário testado manualmente. Próximo: validar no Ubuntu 192.168.1.184.
+2026-11-19 — H1–H6 CONCLUÍDO. HEAD local 9bddbda. Não pushado, não mergeado em main.

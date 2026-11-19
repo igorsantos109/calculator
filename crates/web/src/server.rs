@@ -14,9 +14,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::stream::StreamExt;
+use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, StatusCode};
-use hyper::server::conn::AddrStream;
 use serde::Serialize;
 use tokio::sync::Mutex;
 
@@ -424,7 +424,8 @@ async fn listar_cupons(db: &Arc<Mutex<db::Repositorio>>) -> Response<Body> {
         }
         Err(_) => {
             // H5: Erro genérico sem vazar detalhes internos/SQL
-            ApiError::novo("erro_banco", "Falha ao listar cupons").resposta(StatusCode::INTERNAL_SERVER_ERROR)
+            ApiError::novo("erro_banco", "Falha ao listar cupons")
+                .resposta(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
@@ -459,7 +460,8 @@ async fn buscar_cupom(db: &Arc<Mutex<db::Repositorio>>, caminho: &str) -> Respon
         }
         Err(_) => {
             // H5: Erro genérico sem vazar detalhes internos/SQL
-            ApiError::novo("erro_banco", "Falha ao buscar cupom").resposta(StatusCode::INTERNAL_SERVER_ERROR)
+            ApiError::novo("erro_banco", "Falha ao buscar cupom")
+                .resposta(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
