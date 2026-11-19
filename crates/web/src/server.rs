@@ -422,8 +422,9 @@ async fn listar_cupons(db: &Arc<Mutex<db::Repositorio>>) -> Response<Body> {
             }
             resposta_json(StatusCode::OK, &Saida { cupons, total })
         }
-        Err(e) => {
-            ApiError::novo("erro_banco", e.to_string()).resposta(StatusCode::INTERNAL_SERVER_ERROR)
+        Err(_) => {
+            // H5: Erro genérico sem vazar detalhes internos/SQL
+            ApiError::novo("erro_banco", "Falha ao listar cupons").resposta(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
@@ -456,8 +457,9 @@ async fn buscar_cupom(db: &Arc<Mutex<db::Repositorio>>, caminho: &str) -> Respon
         Ok(None) => {
             ApiError::novo("nao_encontrado", "Cupom não encontrado").resposta(StatusCode::NOT_FOUND)
         }
-        Err(e) => {
-            ApiError::novo("erro_banco", e.to_string()).resposta(StatusCode::INTERNAL_SERVER_ERROR)
+        Err(_) => {
+            // H5: Erro genérico sem vazar detalhes internos/SQL
+            ApiError::novo("erro_banco", "Falha ao buscar cupom").resposta(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
@@ -481,8 +483,9 @@ async fn relatorio(req: &Request<Body>, db: &Arc<Mutex<db::Repositorio>>) -> Res
     let db = db.lock().await;
     let cupons = match db::Repositorio::listar_cupons(&db.conn) {
         Ok(c) => c,
-        Err(e) => {
-            return ApiError::novo("erro_banco", e.to_string())
+        Err(_) => {
+            // H5: Erro genérico sem vazar detalhes internos/SQL
+            return ApiError::novo("erro_banco", "Falha ao listar cupons para relatório")
                 .resposta(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
