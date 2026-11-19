@@ -14,7 +14,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use web::config::Config;
-use web::server::{handle, ServerState};
+use web::server::{handle, IpRateLimiter, ServerState};
 
 async fn servidor_llm_false(resposta: ResponseTemplate) -> MockServer {
     let servidor = MockServer::start().await;
@@ -74,12 +74,13 @@ async fn iniciar_servidor_web_teste(
     let estado_clone = estado.clone();
 
     tokio::spawn(async move {
-        let make_svc = hyper::service::make_service_fn(move |_conn| {
+        let make_svc = hyper::service::make_service_fn(move |conn: &hyper::server::conn::AddrStream| {
             let estado = estado_clone.clone();
+            let client_ip = conn.remote_addr();
             async move {
                 Ok::<_, std::convert::Infallible>(hyper::service::service_fn(move |req| {
                     let estado = estado.clone();
-                    async move { handle(req, estado).await }
+                    async move { handle(req, estado, client_ip).await }
                 }))
             }
         });
@@ -472,12 +473,13 @@ async fn test_extrair_llm_servidor_llm_indisponivel_retorna_502() {
     let addr = addr_real;
 
     tokio::spawn(async move {
-        let make_svc = hyper::service::make_service_fn(move |_conn| {
+        let make_svc = hyper::service::make_service_fn(move |conn: &hyper::server::conn::AddrStream| {
             let estado = estado_clone.clone();
+            let client_ip = conn.remote_addr();
             async move {
                 Ok::<_, std::convert::Infallible>(hyper::service::service_fn(move |req| {
                     let estado = estado.clone();
-                    async move { handle(req, estado).await }
+                    async move { handle(req, estado, client_ip).await }
                 }))
             }
         });
@@ -943,4 +945,100 @@ async fn test_extrair_llm_item_invalido_via_aviso_retorna_200_com_aviso() {
     assert!(!avisos.is_empty(), "deve haver aviso para item inválido");
     // soma_itens deve ser só do item válido (5.5, não 5.5+0)
     assert!((corpo["soma_itens"].as_f64().unwrap() - 5.5).abs() < f64::EPSILON);
+}
+
+/// ===========================
+/// H3: Rate limiting real por IP
+/// ===========================
+
+/// H3: Teste unitário do IpRateLimiter — 5 falhas bloqueiam a 6ª (mesmo IP)
+#[tokio::test]
+async fn test_h3_rate_limiter_5_falhas_bloqueia_6a() {
+    let limiter = IpRateLimiter::new();
+    let ip = "192.168.1.100";
+
+    for _ in 0..5 {
+        limiter.registrar_falha(ip).await;
+    }
+    assert!(limiter.esta_bloqueado(ip).await, "após 5 falhas deve estar bloqueado");
+}
+
+/// H3: IP diferente não é afetado
+#[tokio::test]
+async fn test_h3_rate_limiter_outro_ip_nao_afetado() {
+    let limiter = IpRateLimiter::new();
+    let ip1 = "192.168.1.100";
+    let ip2 = "192.168.1.101";
+
+    for _ in 0..5 {
+        limiter.registrar_falha(ip1).await;
+    }
+    assert!(!limiter.esta_bloqueado(ip2).await, "IP diferente não deve estar bloqueado");
+}
+
+/// H3: Sucesso zera o contador
+#[tokio::test]
+async fn test_h3_rate_limiter_sucesso_zera_contador() {
+    let limiter = IpRateLimiter::new();
+    let ip = "192.168.1.100";
+
+    for _ in 0..4 {
+        limiter.registrar_falha(ip).await;
+    }
+    assert!(!limiter.esta_bloqueado(ip).await, "4 falhas não bloqueiam");
+
+    // Sucesso = zerar contador
+    limiter.zerar_contador(ip).await;
+    assert!(!limiter.esta_bloqueado(ip).await, "após zerar, não deve estar bloqueado");
+
+    // Mais 4 falhas = ainda não bloqueia (contador reiniciou)
+    for _ in 0..4 {
+        limiter.registrar_falha(ip).await;
+    }
+    assert!(!limiter.esta_bloqueado(ip).await, "após zerar, 4 falhas não bloqueiam");
+}
+
+/// H3: Integração — 5 PINs errados → 6ª requisição (mesmo IP, mesmo PIN errado) = 429
+#[tokio::test]
+async fn test_h3_integracao_5_pin_errado_6a_429() {
+    let servidor_llm =
+        servidor_llm_false(ResponseTemplate::new(200).set_body_json(serde_json::json!({}))).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, _temp_dir) = iniciar_servidor_web_teste(dir, &servidor_llm).await;
+
+    let cliente = cliente_http();
+    // PIN errado
+    let pin_errado = "errado123";
+    let headers_errado = {
+        let mut h = reqwest::header::HeaderMap::new();
+        h.insert("Authorization", format!("Bearer {}", pin_errado).parse().unwrap());
+        h
+    };
+
+    // 5 tentativas com PIN errado
+    for _ in 0..5 {
+        let resp = cliente
+            .get(format!("http://{}/api/cupons", addr))
+            .headers(headers_errado.clone())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
+    }
+
+    // 6ª requisição (mesmo IP implícito no servidor de teste) → 429
+    let resp = cliente
+        .get(format!("http://{}/api/cupons", addr))
+        .headers(headers_errado.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        reqwest::StatusCode::TOO_MANY_REQUESTS,
+        "6ª requisição com PIN errado deve dar 429"
+    );
+    // Verificar Retry-After header
+    assert!(resp.headers().get("retry-after").is_some(), "deve ter header Retry-After");
 }

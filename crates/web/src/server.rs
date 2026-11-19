@@ -16,6 +16,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures_util::stream::StreamExt;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, StatusCode};
+use hyper::server::conn::AddrStream;
 use serde::Serialize;
 use tokio::sync::Mutex;
 
@@ -114,13 +115,15 @@ async fn ler_corpo_limitado(req: Request<Body>) -> Result<hyper::body::Bytes, Bo
     let mut corpo = Vec::with_capacity(1024);
     let mut stream = req.into_body();
     let mut total_lido = 0usize;
-    
+
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.map_err(|_| {
-            Box::new(ApiError::novo("erro_leitura", "Falha ao ler corpo da requisição")
-                .resposta(StatusCode::BAD_REQUEST))
+            Box::new(
+                ApiError::novo("erro_leitura", "Falha ao ler corpo da requisição")
+                    .resposta(StatusCode::BAD_REQUEST),
+            )
         })?;
-        
+
         total_lido += chunk.len();
         if total_lido > MAX_CORPO_BYTES {
             return Err(Box::new(
@@ -134,10 +137,10 @@ async fn ler_corpo_limitado(req: Request<Body>) -> Result<hyper::body::Bytes, Bo
                 .resposta(StatusCode::PAYLOAD_TOO_LARGE),
             ));
         }
-        
+
         corpo.extend_from_slice(&chunk);
     }
-    
+
     Ok(hyper::body::Bytes::from(corpo))
 }
 
@@ -201,6 +204,7 @@ fn header_valor(req: &Request<Body>, nome: &str) -> Option<String> {
 pub async fn handle(
     req: Request<Body>,
     estado: Arc<Mutex<ServerState>>,
+    client_ip: std::net::SocketAddr,
 ) -> Result<Response<Body>, Infallible> {
     let guard = estado.lock().await;
     let config = guard.config.clone();
@@ -216,6 +220,25 @@ pub async fn handle(
     // Apenas "/", "/app.js", "/style.css" são públicas (página + assets).
     let rota_publica = caminho == "/" || caminho == "/app.js" || caminho == "/style.css";
 
+    let ip_str = client_ip.ip().to_string();
+
+    // Rate limiting: verificar se IP está bloqueado ANTES de verificar PIN (H3)
+    // Aplica-se a todas as rotas /api (não públicas)
+    if !rota_publica {
+        let bloqueado = rate_limiter.esta_bloqueado(&ip_str).await;
+        if bloqueado {
+            let mut resp = ApiError::novo(
+                "rate_limit_excedido",
+                "Muitas tentativas falhadas. Tente novamente em 5 minutos.",
+            )
+            .resposta(StatusCode::TOO_MANY_REQUESTS);
+            // Adicionar Retry-After: 300 segundos (5 minutos)
+            resp.headers_mut()
+                .insert("Retry-After", "300".parse().unwrap());
+            return Ok(resp);
+        }
+    }
+
     if !rota_publica {
         let autenticado = {
             let auth_ok = header_valor(&req, "authorization")
@@ -230,29 +253,15 @@ pub async fn handle(
             auth_ok || xpin_ok
         };
         if !autenticado {
-            // Registrar falha para rate limiting
-            let ip = "desconhecido"; // Simplificado - em produção usar IP real
-            rate_limiter.registrar_falha(ip).await;
+            // Rate limiting: registrar falha ANTES de devolver 401
+            rate_limiter.registrar_falha(&ip_str).await;
             return Ok(
                 ApiError::novo("pin_obrigatorio", "PIN de acesso é obrigatório")
                     .resposta(StatusCode::UNAUTHORIZED),
             );
         }
-    }
-
-    // Rate limiting: verificar se IP está bloqueado (apenas para rotas /api)
-    if !rota_publica {
-        // Obter IP do cliente (simplificado - hyper não expõe IP diretamente sem connection info)
-        // Para produção, usar um extractor de IP real
-        let ip = "desconhecido";
-        let bloqueado = rate_limiter.esta_bloqueado(ip).await;
-        if bloqueado {
-            return Ok(ApiError::novo(
-                "rate_limit_excedido",
-                "Muitas tentativas falhadas. Tente novamente em 5 minutos.",
-            )
-            .resposta(StatusCode::TOO_MANY_REQUESTS));
-        }
+        // PIN correto → zerar contador do IP
+        rate_limiter.zerar_contador(&ip_str).await;
     }
 
     // Dispatch: mover req nas rotas POST que consomem o corpo
@@ -333,12 +342,13 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error + Send 
         rate_limiter,
     }));
 
-    let make_svc = make_service_fn(move |_conn| {
+    let make_svc = make_service_fn(move |conn: &AddrStream| {
         let estado = estado.clone();
+        let client_ip = conn.remote_addr();
         async move {
             Ok::<_, Infallible>(service_fn(move |req| {
                 let estado = estado.clone();
-                async move { handle(req, estado).await }
+                async move { handle(req, estado, client_ip).await }
             }))
         }
     });
