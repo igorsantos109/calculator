@@ -178,6 +178,12 @@
     els.filtroDivergente.addEventListener("change", renderHistorico);
 
     // Tabela de itens: delegação de eventos (registra UMA vez)
+    // H4: validação no blur/input — valor inválido NÃO vira 0; marca erro e mantém anterior
+    function validarENumerico(campo, valor, minimo) {
+      const v = parseBR(valor);
+      if (isNaN(v) || (minimo !== undefined && v < minimo)) return null;
+      return v;
+    }
     els.corpo.addEventListener("change", (e) => {
       const target = e.target;
       const idx = target.dataset.idx;
@@ -188,11 +194,32 @@
       if (campo === "grupo") {
         item.grupo = target.value;
       } else if (campo === "quantidade") {
-        item.quantidade = parseBR(target.value) || 0;
+        const v = validarENumerico(campo, target.value, 0.001);
+        if (v === null) {
+          target.classList.add("erro");
+          target.value = formatQuantidade(item.quantidade);
+          setTimeout(() => target.classList.remove("erro"), 2000);
+        } else {
+          item.quantidade = v;
+        }
       } else if (campo === "unitario") {
-        item.preco_unitario = parseBR(target.value) || 0;
+        const v = validarENumerico(campo, target.value, 0);
+        if (v === null) {
+          target.classList.add("erro");
+          target.value = formatBRL(item.preco_unitario);
+          setTimeout(() => target.classList.remove("erro"), 2000);
+        } else {
+          item.preco_unitario = v;
+        }
       } else if (campo === "total") {
-        item.preco_total = parseBR(target.value) || 0;
+        const v = validarENumerico(campo, target.value, 0);
+        if (v === null) {
+          target.classList.add("erro");
+          target.value = formatBRL(item.preco_total);
+          setTimeout(() => target.classList.remove("erro"), 2000);
+        } else {
+          item.preco_total = v;
+        }
       } else {
         item.descricao = target.value;
       }
@@ -430,16 +457,7 @@
     atualizarResumo();
   }
 
-  function editarItem(idx, campo, valor) {
-    const item = estado.itens[idx];
-    if (campo === "grupo") item.grupo = valor;
-    else if (campo === "quantidade") item.quantidade = parseBR(valor) || 0;
-    else if (campo === "unitario") item.preco_unitario = parseBR(valor) || 0;
-    else if (campo === "total") item.preco_total = parseBR(valor) || 0;
-    else item.descricao = valor;
-    renderItens();
-    atualizarResumo();
-  }
+  
 
   function renderItens() {
     els.corpo.innerHTML = "";

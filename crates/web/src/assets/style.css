@@ -421,6 +421,14 @@ select:focus { outline: 2px solid var(--cor-primary); border-color: transparent;
   .toolbar h1 { font-size: 1rem; }
 }
 
+/* ---------- Input erro (H4) ---------- */
+.inp-editar.erro,
+.sel-grupo.erro {
+  border-color: var(--cor-erro) !important;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2);
+  outline: none;
+}
+
 /* ---------- Navegação por teclado ---------- */
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 3px solid var(--cor-destaque);

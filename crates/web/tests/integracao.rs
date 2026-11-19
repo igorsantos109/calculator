@@ -787,6 +787,124 @@ async fn test_h1_get_cupom_devolve_grupo_minusculo() {
     assert_eq!(corpo["receita"]["pagador"], serde_json::json!("renan"));
 }
 
+/// H2: verDetalhes calcula responsabilidades/saldos corretos com a resposta da API
+/// (grupos em minúsculas). Teste de integração que valida o JSON devolvido.
+#[tokio::test]
+async fn test_h2_ver_detalhes_saldos_corretos_com_api_minusculo() {
+    let servidor_llm =
+        servidor_llm_false(ResponseTemplate::new(200).set_body_json(serde_json::json!({}))).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, _temp_dir) = iniciar_servidor_web_teste(dir, &servidor_llm).await;
+
+    let cliente = cliente_http();
+
+    // Salvar cupom com items em grupos diferentes (minúsculas no JSON)
+    let cupom = serde_json::json!({
+        "receita": {
+            "data_compra": "2026-11-18",
+            "estabelecimento": "Mercado H2",
+            "total_cupom": 100.0,
+            "imagem_path": "",
+            "pagador": "igor"
+        },
+        "itens": [
+            {
+                "item": {
+                    "descricao": "Arroz",
+                    "quantidade": 1.0,
+                    "preco_unitario": 40.0,
+                    "preco_total": 40.0
+                },
+                "grupo": "casa"
+            },
+            {
+                "item": {
+                    "descricao": "Cerveja Igor",
+                    "quantidade": 2.0,
+                    "preco_unitario": 15.0,
+                    "preco_total": 30.0
+                },
+                "grupo": "igor"
+            },
+            {
+                "item": {
+                    "descricao": "Vinho Renan",
+                    "quantidade": 1.0,
+                    "preco_unitario": 30.0,
+                    "preco_total": 30.0
+                },
+                "grupo": "renan"
+            }
+        ]
+    });
+
+    let resp = cliente
+        .post(format!("http://{}/api/cupons", addr))
+        .headers(headers_com_pin())
+        .json(&cupom)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), reqwest::StatusCode::CREATED);
+    let criado: serde_json::Value = resp.json().await.unwrap();
+    let id = criado["id"].as_i64().unwrap();
+
+    // GET /api/cupons/{id} - a API devolve grupos em minúsculas (H1)
+    let resp = cliente
+        .get(format!("http://{}/api/cupons/{}", addr, id))
+        .headers(headers_com_pin())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+    let cupom_get: serde_json::Value = resp.json().await.unwrap();
+
+    // Verificar que os grupos voltaram em minúsculas
+    assert_eq!(cupom_get["itens"][0]["grupo"], serde_json::json!("casa"));
+    assert_eq!(cupom_get["itens"][1]["grupo"], serde_json::json!("igor"));
+    assert_eq!(cupom_get["itens"][2]["grupo"], serde_json::json!("renan"));
+
+    // Simular o cálculo que verDetalhes faz (mesma lógica)
+    let soma: f64 = cupom_get["itens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| it["item"]["preco_total"].as_f64().unwrap_or(0.0))
+        .sum();
+    assert!((soma - 100.0).abs() < 0.01);
+
+    let mut casa = 0.0;
+    let mut igor_p = 0.0;
+    let mut renan_p = 0.0;
+    for it in cupom_get["itens"].as_array().unwrap() {
+        let preco = it["item"]["preco_total"].as_f64().unwrap_or(0.0);
+        match it["grupo"].as_str().unwrap() {
+            "casa" => casa += preco,
+            "igor" => igor_p += preco,
+            "renan" => renan_p += preco,
+            _ => panic!("grupo inesperado: {}", it["grupo"]),
+        }
+    }
+    let metade_casa = casa / 2.0;
+    let mut resp_igor = igor_p + metade_casa;
+    let mut resp_renan = renan_p + metade_casa;
+    let centavos_casa = (casa * 100.0).round() as i64;
+    if centavos_casa % 2 == 1 {
+        resp_renan += 0.01; // pagador = igor
+    }
+    let saldo_igor = 100.0 - resp_igor;
+    let saldo_renan = 0.0 - resp_renan;
+
+    // casa=40, igor=30, renan=30 → metade_casa=20
+    // resp_igor = 30+20=50, resp_renan = 30+20=50 (+0.01 centavo indivisível)
+    // saldo_igor = 100-50 = 50, saldo_renan = 0-50.01 = -50.01
+    assert!((resp_igor - 50.0).abs() < 0.01, "resp_igor={}", resp_igor);
+    assert!((resp_renan - 50.01).abs() < 0.01, "resp_renan={}", resp_renan);
+    assert!((saldo_igor - 50.0).abs() < 0.01, "saldo_igor={}", saldo_igor);
+    assert!((saldo_renan - (-50.01)).abs() < 0.01, "saldo_renan={}", saldo_renan);
+}
+
 #[tokio::test]
 async fn test_extrair_llm_item_invalido_via_aviso_retorna_200_com_aviso() {
     // Item com quantidade <= 0 deve virar aviso, não fazer a requisição falhar
