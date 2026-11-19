@@ -34,9 +34,9 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 ## Estado atual (após F1–F11 + G1–G15 + H1–H6 + G16)
 - Checkout: /home/igor/ia-sh/calculador
 - Branch: agent/web-llm (a partir de main c8ce9bf)
-- HEAD local: **f422ad0** (G16) — igual a origin/agent/web-llm
+- HEAD local: **50dbd5e** (G16 + HANDOFF pós-push) — igual a origin
 - origin/main: c8ce9bf (igual a main local)
-- origin/agent/web-llm: f422ad0 (pushado)
+- origin/agent/web-llm: 50dbd5e (pushado)
 - Crates no workspace: receipt_core (core), db, web. crates/ui retirado do workspace
 
 ## Commits locais (agent/web-llm — H1–H6)
@@ -93,11 +93,10 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - HANDOFF.md — atualizado com SHA real do HEAD
 
 ## Operações em andamento
-- Nenhuma. G16 commitado (**f422ad0**) e pushado para
-  `origin/agent/web-llm` (958009f..f422ad0).
+- Nenhuma. Sincronia local/remoto verificada: HEAD = `origin/agent/web-llm`
+  = **50dbd5e** (G16 em f422ad0 + HANDOFF pós-push). Nada a enviar.
 - Restam apenas 3 untracked, deliberadamente **não** versionados:
   `test_dom.js`, `test_final_g14.js`, `test_g14.js` (ver decisão em G16).
-- Nenhuma alteração local pendente; working tree limpo quanto ao rastreado.
 
 ## Sessão G16 (2026-11-19)
 ### Proteção de dados (descoberta importante)
@@ -143,7 +142,8 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - Validar no Ubuntu 192.168.1.184 conforme `ROTEIRO_TESTE.md`.
 
 ## Última atualização
-2026-11-19 — G16 commitado (**f422ad0**) e pushado para
-`origin/agent/web-llm` (958009f..f422ad0). Gates reverificados:
-fmt OK, clippy `-D warnings` OK, test 82 passando (core 41, db 18, web 23),
-JS 9/9, build release OK. Nenhuma operação em andamento.
+2026-11-19 — G16 em **f422ad0** + HANDOFF pós-push em **50dbd5e**, ambos
+pushados para `origin/agent/web-llm`. Sincronia local/remoto reverificada
+(HEAD = origin). Gates: fmt OK, clippy `-D warnings` OK, 82 testes Rust
+(core 41, db 18, web 23), JS 9/9, build release OK.
+Nenhuma operação em andamento.
