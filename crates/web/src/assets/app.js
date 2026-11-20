@@ -595,7 +595,7 @@
       }
       const dados = await resp.json();
       mostrarSucesso("Cupom salvo com sucesso (ID " + dados.id + ").");
-      carregarHistorico();
+      await carregarHistorico();
       novoCupom();
     } catch (e) {
       mostrarErro(e.message || "Erro ao salvar cupom.");
@@ -897,6 +897,10 @@
       fazerLogin,
       setPin,
       getPin,
+      setupEventos,
+      extrairItensTextoOCR,
+      carregarHistorico,
+      gerarRelatorioPeriodo,
     };
   }
 })();

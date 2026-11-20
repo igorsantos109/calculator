@@ -450,7 +450,9 @@ async fn buscar_cupom(db: &Arc<Mutex<db::Repositorio>>, caminho: &str) -> Respon
                     cupom.itens = itens;
                 }
                 Err(_) => {
-                    cupom.itens = Vec::new();
+                    // C6: falha ao ler itens não pode virar cupom vazio em silêncio.
+                    return ApiError::novo("erro_banco", "Falha ao carregar itens do cupom")
+                        .resposta(StatusCode::INTERNAL_SERVER_ERROR);
                 }
             }
             resposta_json(StatusCode::OK, &cupom)
@@ -648,8 +650,34 @@ async fn extrair_llm(
                     ("resposta_invalida", StatusCode::BAD_GATEWAY)
                 }
             };
-            // Erro genérico sem vazar detalhes internos/SQL
-            ApiError::novo(codigo, e.to_string()).resposta(status)
+            // C5: mensagem genérica sem vazar URL interna/segredos do LLM.
+            let mensagem = match &e {
+                receipt_core::llm::LlmError::ServidorInacessível(_) => {
+                    "Servidor LLM inacessível".to_string()
+                }
+                receipt_core::llm::LlmError::ServidorIndisponível(_, _) => {
+                    "Servidor LLM indisponível".to_string()
+                }
+                receipt_core::llm::LlmError::RespostaInvalida(_) => {
+                    "Resposta inválida do servidor LLM".to_string()
+                }
+                receipt_core::llm::LlmError::JsonInvalido(_) => {
+                    "Resposta do LLM não contém JSON válido".to_string()
+                }
+                receipt_core::llm::LlmError::RespostaTruncada => {
+                    "Resposta do LLM truncada".to_string()
+                }
+                receipt_core::llm::LlmError::ItemInvalido(_) => {
+                    "Item inválido retornado pelo LLM".to_string()
+                }
+                receipt_core::llm::LlmError::ChaveInvalida(_) => {
+                    "Chave do LLM inválida ou ausente".to_string()
+                }
+                receipt_core::llm::LlmError::Timeout => {
+                    "Timeout ao consultar o servidor LLM".to_string()
+                }
+            };
+            ApiError::novo(codigo, mensagem).resposta(status)
         }
     }
 }
@@ -673,6 +701,14 @@ async fn salvar_cupom(req: Request<Body>, db: &Arc<Mutex<db::Repositorio>>) -> R
     if cupom.receita.data_compra.trim().is_empty() {
         return ApiError::novo("campo_obrigatorio", "data_compra é obrigatória")
             .resposta(StatusCode::BAD_REQUEST);
+    }
+    // C5: validar formato de data no servidor (YYYY-MM-DD)
+    if !eh_data_valida(&cupom.receita.data_compra) {
+        return ApiError::novo(
+            "campo_invalido",
+            "data_compra deve estar no formato AAAA-MM-DD (ex: 2026-11-18)",
+        )
+        .resposta(StatusCode::BAD_REQUEST);
     }
     if cupom.receita.estabelecimento.trim().is_empty() {
         return ApiError::novo("campo_obrigatorio", "estabelecimento é obrigatório")
@@ -792,4 +828,50 @@ fn url_decode(entrada: &str) -> String {
         }
     }
     saida
+}
+
+/// Valida que `data` está no formato ISO 8601 AAAA-MM-DD e representa uma
+/// data real (mês 1–12, dia válido para o mês, incluindo bissexto).
+fn eh_data_valida(data: &str) -> bool {
+    let bytes = data.as_bytes();
+    if bytes.len() != 10 {
+        return false;
+    }
+    if bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    let ano: i32 = match data[0..4].parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let mes: u32 = match data[5..7].parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let dia: u32 = match data[8..10].parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    if !(1..=12).contains(&mes) || !(1..=31).contains(&dia) {
+        return false;
+    }
+    let dias_no_mes = [
+        31,
+        if ano % 4 == 0 && (ano % 100 != 0 || ano % 400 == 0) {
+            29
+        } else {
+            28
+        },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    dia <= dias_no_mes[mes as usize - 1]
 }

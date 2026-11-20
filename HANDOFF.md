@@ -60,14 +60,17 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 | H5  | Erros de banco genéricos (sem vazamento)              | CONCLUÍDA      |
 | H6  | Testes JS com node:test + dom_stub                    | CONCLUÍDA      |
 | Final | fmt, clippy -D warnings, test --workspace --offline --locked | CONCLUÍDA      |
+| Piloto C2 | Fluxo manual completo + e2e (binário real + app.js real + fetch real) | CONCLUÍDA (19/19) |
+| C5/C6 | Estabilidade: buscar_cupom não engole erro; LLM não vaza URL; data validada | CONCLUÍDA |
 
 ## Totais de testes (estado final)
 - receipt_core: 41 aprovados, 0 falhos, 1 ignorado (inclui 5 testes H1)
 - db: 18 aprovados, 0 falhos, 0 ignorados
-- web: 23 testes de integração aprovados (inclui H1/H2/H3)
+- web: 26 testes de integração aprovados (inclui H1/H2/H3 + 3 novos C5/C6)
 - doc-tests: 0
-- JS: 4/4 testes H6 passando (login, salvar, remover, saldos)
-- **Total: 86 testes passando**
+- JS: 9/9 passando (4 em test_app.js + 5 em test_app_simple.js)
+- E2E C2: 19/19 passando (tests/js/e2e_c2_piloto.js)
+- **Total: 85 testes Rust + 9 JS + 19 e2e = 113 verificações passando**
 
 ## Ambiente de build
 - cargo 1.100.0, rustc 1.100.0
@@ -95,12 +98,32 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - HANDOFF.md — atualizado com SHA real do HEAD
 
 ## Operações em andamento
-- Nenhuma. Sincronia local/remoto verificada: HEAD local = `origin` (pushado).
-  Nada a enviar.
-- Restam apenas 3 untracked, deliberadamente **não** versionados:
+- Piloto C2 (fluxo manual completo): implementado e verificado (19/19 e2e).
+  Pendente: confirmação de Igor da versão do Ubuntu do 192.168.1.184 (C1).
+  C3 (centavos) e C4 (rascunho/confirmado) adiados por Igor (DECISOES.md).
+- Nenhuma operação de push: branch `agent/web-llm` só local, sem autorização.
+- Restam 3 untracked deliberadamente **não** versionados:
   `test_dom.js`, `test_final_g14.js`, `test_g14.js` (ver decisão em G16).
 
-## Sessão G16 (2026-11-19)
+## Sessão piloto (2026-11-20) — liderada pela IA dev (Lead)
+### Correções de estabilidade (C5, C6)
+- `crates/web/src/server.rs`:
+  - C6: `buscar_cupom` não engole mais erro de leitura de itens; retorna 500 `erro_banco` "Falha ao carregar itens do cupom" (antes virava cupom sem itens em silêncio).
+  - C5: erros do LLM (`extrair_llm`) devolvem mensagem genérica sem vazar URL interna/porta/segredos.
+  - C5: validação de `data_compra` no servidor (formato AAAA-MM-DD, datas reais).
+- `crates/web/src/assets/app.js`:
+  - `await carregarHistorico()` após salvar (evita race conditions).
+  - Exposto para teste: `setupEventos`, `extrairItensTextoOCR`, `carregarHistorico`, `gerarRelatorioPeriodo`.
+- `crates/web/tests/integracao.rs`: +3 testes (data inválida → 400; LLM erro não vaza URL; buscar_cupom retorna itens).
+- `tests/js/e2e_c2_piloto.js`: novo teste ponta a ponta C2 (binário release real + app.js real + fetch real contra servidor efêmero, banco temporário, porta livre). 19/19 passando.
+
+### Novos arquivos (entrega)
+- `DECISOES.md` — decisões de Igor (push, D10, C1, C3, C4, auditor, dados reais).
+- `PROVAS.md` — registro de provas C1–C10 (comandos, saídas, vereditos).
+- `AUDITORIA.md` — pacote de auditoria para revisor independente (C10).
+- `tools/verificar.sh` — script único de verificação (rodar todas as checagens).
+
+### Sessão G16 (2026-11-19)
 ### Proteção de dados (descoberta importante)
 - Os 5 arquivos `cupons.db.*.bak` na raiz contêm **dados reais de cupons** e
   apareciam como untracked — o `.gitignore` cobria `*.db` mas não `*.bak`.

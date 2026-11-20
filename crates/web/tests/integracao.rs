@@ -1074,3 +1074,207 @@ async fn test_h3_integracao_5_pin_errado_6a_429() {
         "deve ter header Retry-After"
     );
 }
+
+/// C5: data inválida no servidor deve retornar 400 (não aceitar qualquer string).
+#[tokio::test]
+async fn test_salvar_cupom_data_invalida_retorna_400() {
+    let servidor_llm =
+        servidor_llm_false(ResponseTemplate::new(200).set_body_json(serde_json::json!({}))).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, _temp_dir) = iniciar_servidor_web_teste(dir, &servidor_llm).await;
+
+    let cliente = cliente_http();
+    let cupom = serde_json::json!({
+        "receita": {
+            "data_compra": "18/11/2026",
+            "estabelecimento": "Teste",
+            "total_cupom": 10.00,
+            "imagem_path": "",
+            "pagador": "igor"
+        },
+        "itens": [
+            {
+                "item": {
+                    "descricao": "Item",
+                    "quantidade": 1.0,
+                    "preco_unitario": 10.0,
+                    "preco_total": 10.0
+                },
+                "grupo": "casa"
+            }
+        ]
+    });
+
+    let resposta = cliente
+        .post(format!("http://{}/api/cupons", addr))
+        .headers(headers_com_pin())
+        .json(&cupom)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resposta.status(),
+        reqwest::StatusCode::BAD_REQUEST,
+        "data no formato DD/MM/AAAA deve ser rejeitada pelo servidor"
+    );
+    let corpo: serde_json::Value = resposta.json().await.unwrap();
+    assert_eq!(corpo["codigo"], "campo_invalido");
+}
+
+/// C5: erro do LLM não deve vazar URL interna nem detalhes do servidor.
+#[tokio::test]
+async fn test_extrair_llm_erro_nao_vaza_url() {
+    // Porta não utilizada → conexão recusada → ServidorInacessível
+    let dir = tempfile::tempdir().unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr_real = listener.local_addr().unwrap();
+
+    let config = web::config::Config {
+        listen_addr: addr_real,
+        pin: "testpin123".to_string(),
+        db_path: dir.path().join("test.db"),
+        // Endereço que parece interno mas na verdade está em localhost numa
+        // porta não ouvida → conexão recusada imediatamente → ServidorInacessível (502)
+        llm_base_url: "http://127.0.0.1:65530".to_string(),
+        llm_model: "modelo-teste".to_string(),
+        llm_api_key_env: None,
+        ocr_dir: std::env::temp_dir(),
+        upload_limit: 10 * 1024 * 1024,
+    };
+
+    let db = db::Repositorio::new(&config.db_path).expect("falha ao abrir banco de teste");
+    let llm_config = receipt_core::llm::LlmConfig {
+        llm_base_url: config.llm_base_url.clone(),
+        llm_model: config.llm_model.clone(),
+        llm_api_key_env: config.llm_api_key_env.clone(),
+        timeout: 1,
+        max_tentativas: 1,
+        max_tokens: 256,
+    };
+    let llm_cliente = receipt_core::llm::ClienteLlm::new(llm_config)
+        .expect("falha ao criar cliente LLM de teste");
+
+    let estado = Arc::new(Mutex::new(web::server::ServerState {
+        config: config.clone(),
+        db: Arc::new(Mutex::new(db)),
+        llm_cliente: Arc::new(Mutex::new(llm_cliente)),
+        rate_limiter: web::server::IpRateLimiter::new(),
+    }));
+
+    let estado_clone = estado.clone();
+    let addr = addr_real;
+
+    tokio::spawn(async move {
+        let make_svc =
+            hyper::service::make_service_fn(move |conn: &hyper::server::conn::AddrStream| {
+                let estado = estado_clone.clone();
+                let client_ip = conn.remote_addr();
+                async move {
+                    Ok::<_, std::convert::Infallible>(hyper::service::service_fn(move |req| {
+                        let estado = estado.clone();
+                        async move { web::server::handle(req, estado, client_ip).await }
+                    }))
+                }
+            });
+        let servidor = hyper::Server::from_tcp(listener)
+            .expect("falha ao criar listener TCP")
+            .serve(make_svc);
+        let _ = servidor.await;
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let cliente = cliente_http();
+    let corpo = serde_json::json!({
+        "texto_ocr": "teste",
+        "total_cupom": 0.0
+    });
+
+    let resposta = cliente
+        .post(format!("http://{}/api/extrair", addr))
+        .headers(headers_com_pin())
+        .json(&corpo)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resposta.status(),
+        reqwest::StatusCode::BAD_GATEWAY,
+        "LLM inacessível deve retornar 502"
+    );
+    let corpo: serde_json::Value = resposta.json().await.unwrap();
+    assert_eq!(corpo["codigo"], "servidor_llm_inacessível");
+    let mensagem = corpo["mensagem"].as_str().unwrap_or("");
+    assert!(
+        !mensagem.contains("192.168.99.99"),
+        "mensagem não deve vazar URL interna: {}",
+        mensagem
+    );
+    assert!(
+        !mensagem.contains("65530"),
+        "mensagem não deve vazar porta interna: {}",
+        mensagem
+    );
+}
+
+/// C6: falha ao ler itens do cupom não pode retornar cupom com itens vazios.
+/// (Cobrido por unit: buscar_itens_por_receipt_id propaga erro; aqui
+/// garantimos que GET /api/cupons/{id} com id existente responde OK com itens.)
+#[tokio::test]
+async fn test_buscar_cupom_existente_retorna_itens() {
+    let servidor_llm =
+        servidor_llm_false(ResponseTemplate::new(200).set_body_json(serde_json::json!({}))).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, _temp_dir) = iniciar_servidor_web_teste(dir, &servidor_llm).await;
+
+    let cliente = cliente_http();
+
+    let cupom = serde_json::json!({
+        "receita": {
+            "data_compra": "2026-11-18",
+            "estabelecimento": "Mercado",
+            "total_cupom": 20.0,
+            "imagem_path": "",
+            "pagador": "igor"
+        },
+        "itens": [
+            {
+                "item": {
+                    "descricao": "Arroz",
+                    "quantidade": 1.0,
+                    "preco_unitario": 20.0,
+                    "preco_total": 20.0
+                },
+                "grupo": "casa"
+            }
+        ]
+    });
+
+    let resposta = cliente
+        .post(format!("http://{}/api/cupons", addr))
+        .headers(headers_com_pin())
+        .json(&cupom)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resposta.status(), reqwest::StatusCode::CREATED);
+    let criado: serde_json::Value = resposta.json().await.unwrap();
+    let id = criado["id"].as_i64().unwrap();
+
+    let resposta = cliente
+        .get(format!("http://{}/api/cupons/{}", addr, id))
+        .headers(headers_com_pin())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resposta.status(), reqwest::StatusCode::OK);
+    let corpo: serde_json::Value = resposta.json().await.unwrap();
+    assert_eq!(corpo["id"], id);
+    assert_eq!(corpo["itens"].as_array().unwrap().len(), 1);
+    assert_eq!(corpo["itens"][0]["item"]["descricao"], "Arroz");
+}
