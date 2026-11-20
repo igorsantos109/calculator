@@ -163,13 +163,20 @@ Backend LLM: llama-server (llama.cpp) em outro PC da LAN, via POST {llm_base_url
 - `cargo build --release --workspace --locked`: OK
 - Binário revalidado: `/api/saude` OK com PIN; 401 sem PIN; PIN < 6 recusado
 
+### Sessão experimentação controlada (2026-11-20) — liderada pela IA dev (Lead)
+- `tests/js/experimento_controlado.js`: novo teste de uso não-linear (usuário
+  que não implementou o software) com dados sintéticos, 127.0.0.1, SQLite
+  temporário, app.js real, fetch real. 10/10 OK, 0 CONFUSO, 0 FALHA.
+- Cobertura: salvar sem itens, salvar sem estabelecimento, PIN curto, detalhes
+  de cupom inexistente, divergência de total, relatório vazio, LLM indisponível
+  + salvamento manual, edição de item no modal de detalhes.
+- Nenhuma confusão encontrada; comportamento consistente com o esperado.
+
 ### Próxima ação
-- Validar no Ubuntu 192.168.1.184 conforme `ROTEIRO_TESTE.md`.
+- Validar no Ubuntu 192.168.1.184 conforme `ROTEIRO_TESTE.md` (pendente: versão do Ubuntu alvo).
 
 ## Última atualização
-2026-11-19 — G16 (código) em **f422ad0**; commits posteriores são apenas
-documentação do HANDOFF e estão pushados (HEAD local = origin).
-**Nota:** a partir daqui as seções de estado não citam SHA do HEAD, porque
-isso gerava um novo commit a cada correção. Use `git rev-parse HEAD`.
-Gates: fmt OK, clippy `-D warnings` OK, 82 testes Rust (core 41, db 18,
-web 23), JS 9/9, build release OK. Nenhuma operação em andamento.
+2026-11-20 — experimentação controlada concluída (dados sintéticos).
+Gates: fmt OK, clippy `-D warnings` OK, 85 testes Rust (core 41, db 18,
+web 26), JS 9/9, validação sintética 35/35, experimentação 10/10, build
+release OK. Nenhuma operação em andamento.
