@@ -513,27 +513,34 @@
       els.selo.className = "selo selo-divergente";
     }
 
-    // Responsabilidades (regras da casa)
-    let casa = 0, igorPessoal = 0, renanPessoal = 0;
+    // Responsabilidades (regras da casa) — calculado em centavos inteiros
+    // para evitar erro de ponto flutuante no centavo indivisível.
+    let casaCentavos = 0, igorPessoalCentavos = 0, renanPessoalCentavos = 0;
     estado.itens.forEach((it) => {
-      if (it.grupo === "casa") casa += it.preco_total || 0;
-      else if (it.grupo === "igor") igorPessoal += it.preco_total || 0;
-      else if (it.grupo === "renan") renanPessoal += it.preco_total || 0;
+      const c = Math.round((it.preco_total || 0) * 100);
+      if (it.grupo === "casa") casaCentavos += c;
+      else if (it.grupo === "igor") igorPessoalCentavos += c;
+      else if (it.grupo === "renan") renanPessoalCentavos += c;
     });
-    const metadeCasa = casa / 2;
-    let respIgor = igorPessoal + metadeCasa;
-    let respRenan = renanPessoal + metadeCasa;
+    // Metade da casa em centavos inteiros (divisão inteira)
+    const metadeCasaCentavos = Math.floor(casaCentavos / 2);
+    const centavoIndivisivel = casaCentavos % 2; // 1 se ímpar
+    let respIgorCentavos = igorPessoalCentavos + metadeCasaCentavos;
+    let respRenanCentavos = renanPessoalCentavos + metadeCasaCentavos;
     // Centavo indivisível para quem NÃO pagou
-    const centavosCasa = Math.round(casa * 100);
-    if (centavosCasa % 2 === 1) {
-      if (pagador === "igor") respRenan += 0.01;
-      else respIgor += 0.01;
+    if (centavoIndivisivel === 1) {
+      if (pagador === "igor") respRenanCentavos += 1;
+      else respIgorCentavos += 1;
     }
-    const valorPagoIgor = pagador === "igor" ? (parseBR(els.inputTotalCupom.value) || 0) : 0;
-    const valorPagoRenan = pagador === "renan" ? (parseBR(els.inputTotalCupom.value) || 0) : 0;
+    const respIgor = respIgorCentavos / 100;
+    const respRenan = respRenanCentavos / 100;
+    const valorPagoIgorCentavos =
+      pagador === "igor" ? Math.round((parseBR(els.inputTotalCupom.value) || 0) * 100) : 0;
+    const valorPagoRenanCentavos =
+      pagador === "renan" ? Math.round((parseBR(els.inputTotalCupom.value) || 0) * 100) : 0;
 
-    estado.saldoIgor = valorPagoIgor - respIgor;
-    estado.saldoRenan = valorPagoRenan - respRenan;
+    estado.saldoIgor = (valorPagoIgorCentavos - respIgorCentavos) / 100;
+    estado.saldoRenan = (valorPagoRenanCentavos - respRenanCentavos) / 100;
 
     els.saldoIgorEl.textContent = formatBRL(estado.saldoIgor);
     els.saldoRenanEl.textContent = formatBRL(estado.saldoRenan);
@@ -679,24 +686,31 @@
 
       const soma = cupom.itens.reduce((acc, it) => acc + (it.item.preco_total || 0), 0);
       const pagador = cupom.receita.pagador;
-      let casa = 0, igorP = 0, renanP = 0;
+      let casaCentavos = 0, igorPessoalCentavos = 0, renanPessoalCentavos = 0;
       cupom.itens.forEach((it) => {
-        if (it.grupo === "casa") casa += it.item.preco_total || 0;
-        else if (it.grupo === "igor") igorP += it.item.preco_total || 0;
-        else if (it.grupo === "renan") renanP += it.item.preco_total || 0;
+        const c = Math.round((it.item.preco_total || 0) * 100);
+        if (it.grupo === "casa") casaCentavos += c;
+        else if (it.grupo === "igor") igorPessoalCentavos += c;
+        else if (it.grupo === "renan") renanPessoalCentavos += c;
       });
-      const metadeCasa = casa / 2;
-      let respIgor = igorP + metadeCasa;
-      let respRenan = renanP + metadeCasa;
-      const centavosCasa = Math.round(casa * 100);
-      if (centavosCasa % 2 === 1) {
-        if (pagador === "igor") respRenan += 0.01;
-        else respIgor += 0.01;
+      // Metade da casa em centavos inteiros (divisão inteira)
+      const metadeCasaCentavos = Math.floor(casaCentavos / 2);
+      const centavoIndivisivel = casaCentavos % 2;
+      let respIgorCentavos = igorPessoalCentavos + metadeCasaCentavos;
+      let respRenanCentavos = renanPessoalCentavos + metadeCasaCentavos;
+      // Centavo indivisível para quem NÃO pagou
+      if (centavoIndivisivel === 1) {
+        if (pagador === "igor") respRenanCentavos += 1;
+        else respIgorCentavos += 1;
       }
-      const vpIgor = pagador === "igor" ? cupom.receita.total_cupom : 0;
-      const vpRenan = pagador === "renan" ? cupom.receita.total_cupom : 0;
-      const saldoIgor = vpIgor - respIgor;
-      const saldoRenan = vpRenan - respRenan;
+      const respIgor = respIgorCentavos / 100;
+      const respRenan = respRenanCentavos / 100;
+      const vpIgorCentavos =
+        pagador === "igor" ? Math.round(cupom.receita.total_cupom * 100) : 0;
+      const vpRenanCentavos =
+        pagador === "renan" ? Math.round(cupom.receita.total_cupom * 100) : 0;
+      const saldoIgor = (vpIgorCentavos - respIgorCentavos) / 100;
+      const saldoRenan = (vpRenanCentavos - respRenanCentavos) / 100;
 
       document.getElementById("det-igor").textContent = formatBRL(respIgor);
       document.getElementById("det-renan").textContent = formatBRL(respRenan);
